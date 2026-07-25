@@ -46,7 +46,7 @@ export function MonthlyReportsScreen({ onBack, onOpenDaily, onOpenPdf, currency 
 
   const monthOptions = useMemo(() => {
     const monthsArr = lang === 'en' ? ENGLISH_MONTHS : SINHALA_MONTHS;
-    const opts = [];
+    const opts: { value: string; label: string }[] = [];
     const tDate = new Date();
     for (let i = 0; i < 12; i++) {
       const d = new Date(tDate.getFullYear(), tDate.getMonth() - i, 1);

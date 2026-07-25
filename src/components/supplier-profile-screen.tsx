@@ -308,7 +308,7 @@ export function SupplierProfileScreen({ supplierId, onBack, currency }: Props) {
                   <div className="flex-1 min-w-0">
                     <p className="font-semibold text-stone-800 dark:text-amber-50">{formatCurrency(pm.amount, currency)}</p>
                     <p className="text-stone-500 dark:text-amber-100/50 flex items-center gap-1">
-                      <Clock size={10} /> {formatDate(pm.paymentDate, lang)} · {new Date(pm.paidAt).toLocaleTimeString(lang === 'si' ? 'si-LK' : 'en-US', { hour: '2-digit', minute: '2-digit' })}
+                      <Clock size={10} /> {formatDate(pm.paymentDate, lang as any)} · {new Date(pm.paidAt).toLocaleTimeString(lang === 'si' ? 'si-LK' : 'en-US', { hour: '2-digit', minute: '2-digit' })}
                     </p>
                   </div>
                 </div>
@@ -363,8 +363,8 @@ export function SupplierProfileScreen({ supplierId, onBack, currency }: Props) {
         totalPaid={summary?.totalPaid || 0}
         totalCost={summary?.totalPurchaseAmount || 0}
         open={!!showPaymentForm}
-        onClose={() => setShowPaymentForm(null)}
-        onSaved={() => { setShowPaymentForm(null); refresh(); }}
+        onClose={() => setShowPaymentForm(false)}
+        onSaved={() => { setShowPaymentForm(false); refresh(); }}
         currency={currency}
         activePurchases={activeGroups.flatMap(g => g.items)}
       />
@@ -393,7 +393,7 @@ function PurchaseGroupCard({ group, categories, currency, t, lang, onAddPayment,
             <Package size={16} />
           </div>
           <div>
-            <p className="font-semibold text-sm text-stone-800 dark:text-amber-50">{formatDate(group.date, lang)}</p>
+            <p className="font-semibold text-sm text-stone-800 dark:text-amber-50">{formatDate(group.date, lang as any)}</p>
             <p className="text-[10px] text-stone-500 dark:text-amber-100/50">
               {formatNumber(group.totalEggs)} {t('inventory.eggs')} · {group.items.length} {t('supplier.lineItems')}
             </p>

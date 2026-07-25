@@ -416,7 +416,7 @@ function SummaryBox({ label, value, color }: { label: string; value: string; col
 
 function getLast6Months(lang: string): { value: string; label: string }[] {
   const today = new Date();
-  const months = [];
+  const months: { value: string; label: string }[] = [];
   for (let i = 0; i < 6; i++) {
     const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
     const value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
