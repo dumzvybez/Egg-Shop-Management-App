@@ -229,6 +229,7 @@ function CreditForm({ open, onClose, onSaved, currency }: {
   const [sellPrice, setSellPrice] = useState('');
   const [paidNow, setPaidNow] = useState('');
   const [saving, setSaving] = useState(false);
+  const [availableCats, setAvailableCats] = useState<typeof categories>([]);
 
   // Default category = first available today
   useEffect(() => {
@@ -255,8 +256,6 @@ function CreditForm({ open, onClose, onSaved, currency }: {
       }
     })();
   }, [open, categories]);
-
-  const [availableCats, setAvailableCats] = useState<typeof categories>([]);
 
   // Auto-update sellPrice when category changes (pull today's price)
   useEffect(() => {
