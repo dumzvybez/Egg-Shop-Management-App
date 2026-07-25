@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowLeft, Plus, Check, X, AlertTriangle, Trash2, Save, History, Info, PackageX, EggCrack } from 'lucide-react';
+import { ArrowLeft, Plus, Check, X, AlertTriangle, Trash2, Save, History, Info, PackageX, HeartCrack } from 'lucide-react';
 import {
   useCategories, useDayData, useI18n, useInventory,
   saveSale, updateSale, deleteSale,
@@ -643,7 +643,7 @@ export function ProfitCalculatorScreen({ date, onBack }: Props) {
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
               <div className="w-9 h-9 rounded-xl glass-danger flex items-center justify-center text-white">
-                <EggCrack size={16} />
+                <HeartCrack size={16} />
               </div>
               <div>
                 <h2 className="font-bold text-sm text-stone-800 dark:text-amber-50">{t('damage.title')}</h2>
@@ -901,7 +901,7 @@ export function ProfitCalculatorScreen({ date, onBack }: Props) {
             >
               <div className="px-5 pt-5 pb-3 flex items-center justify-between border-b border-white/30">
                 <div className="flex items-center gap-2">
-                  <EggCrack size={18} className="text-red-500" />
+                  <HeartCrack size={18} className="text-red-500" />
                   <h2 className="text-base font-bold text-stone-800 dark:text-amber-50">{t('damage.add')}</h2>
                 </div>
                 <button onClick={() => setShowDamageForm(false)} className="w-8 h-8 rounded-full glass flex items-center justify-center text-stone-700 dark:text-amber-50">

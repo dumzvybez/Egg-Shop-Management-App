@@ -4,10 +4,7 @@
   <strong>A modern offline-first Progressive Web App for egg shop management.</strong>
   <br><br>
   Manage inventory, suppliers, sales, profits, customer credit, expenses and reports — all in one simple application.
-</p>
-
-<p align="center">
-
+<br>
 ![Version](https://img.shields.io/badge/version-v2.5-blue)
 ![PWA](https://img.shields.io/badge/PWA-Ready-success)
 ![Offline](https://img.shields.io/badge/Offline-First-success)
