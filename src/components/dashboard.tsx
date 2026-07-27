@@ -1,21 +1,19 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
-  TrendingUp, Egg, Wallet, Coins, ChevronRight, Settings as SettingsIcon,
-  Package, AlertTriangle, Users, Tag as TagIcon, Bell, Lightbulb, PackageX,
+  TrendingUp, TrendingDown, Wallet, Coins, Truck, Users, Package,
+  AlertTriangle, Settings as SettingsIcon, ChevronRight, Crown, ArrowUpRight, ArrowDownRight, ShoppingBag,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell,
 } from 'recharts';
 import {
-  useDayData, useCategories, useI18n, useInventory, useCredits,
-  getDayRecordsForRange, getMonthSummary, todayStr, addDays, relativeDayLabel,
-  formatCurrency, formatNumber,
-  type DayRecord, type MonthSummary,
+  useI18n, getDashboardStats, getMonthSummary, todayStr, addDays,
+  formatCurrency, formatNumber, type DashboardStats, type MonthSummary,
 } from '@/lib/data-hooks-adapter';
-import { formatDate, formatDateShort, formatMonth } from '@/lib/sinhala';
+import { formatDateShort, formatMonth } from '@/lib/sinhala';
 
 type Props = {
   date: string;
@@ -25,18 +23,14 @@ type Props = {
   onRecentClick: (date: string) => void;
   shopName: string;
   ownerName: string;
+  shopType: string;
   onOpenSettings: () => void;
   onOpenInventory: () => void;
   onOpenSuppliers: () => void;
   onOpenCredit: () => void;
-  onChangePrice: () => void;
+  onOpenExpenses: () => void;
 };
 
-/** Stock thresholds — must match inventory-screen.tsx */
-const HIGH_THRESHOLD = 100;
-const MEDIUM_THRESHOLD = 50;
-
-/** Compute a time-of-day greeting key based on the current hour. */
 function greetingKey(): string {
   const h = new Date().getHours();
   if (h < 12) return 'greeting.morning';
@@ -46,81 +40,62 @@ function greetingKey(): string {
 }
 
 export function Dashboard({
-  date, currency, onSeeAllReports, onSeeMonthlyReports, onRecentClick,
-  shopName, ownerName, onOpenSettings, onOpenInventory, onOpenSuppliers, onOpenCredit,
-  onChangePrice,
+  date, currency, onSeeAllReports, onSeeMonthlyReports,
+  shopName, ownerName, shopType,
+  onOpenSettings, onOpenInventory, onOpenSuppliers, onOpenCredit, onOpenExpenses,
 }: Props) {
-  const { day, loading } = useDayData(date);
-  const { categories } = useCategories();
-  const { inventory } = useInventory();
-  const { active: activeCredits } = useCredits();
-  const { t, lang } = useI18n();
-  const [recent, setRecent] = useState<DayRecord[]>([]);
-  const [last7, setLast7] = useState<{ date: string; profit: number; label: string }[]>([]);
-  const [yesterdayProfit, setYesterdayProfit] = useState<number | null>(null);
+  const { t } = useI18n();
+  const [stats, setStats] = useState<DashboardStats | null>(null);
   const [monthSummary, setMonthSummary] = useState<MonthSummary | null>(null);
+  const [last7, setLast7] = useState<{ date: string; profit: number; label: string }[]>([]);
 
   useEffect(() => {
     (async () => {
+      const s = await getDashboardStats();
+      setStats(s);
+
       const today = todayStr();
-      // Fetch last 7 days of sales for accurate profit chart
       const { getSalesForDateRange } = await import('@/lib/db');
       const salesByDate = new Map<string, number>();
       for (let i = 1; i <= 7; i++) {
         const d = addDays(today, -i);
         const sales = await getSalesForDateRange(d, d);
         const profit = sales.reduce((a, s) => a + s.profit, 0);
-        if (profit !== 0 || sales.length > 0) {
-          salesByDate.set(d, profit);
-        }
+        if (profit !== 0 || sales.length > 0) salesByDate.set(d, profit);
       }
-      // Build chart data (7 days, even if some have 0 profit)
       const chartData: { date: string; profit: number; label: string }[] = [];
       for (let i = 7; i >= 1; i--) {
         const d = addDays(today, -i);
         const dayNum = new Date(d + 'T00:00:00').getDate();
-        chartData.push({
-          date: d,
-          profit: salesByDate.get(d) || 0,
-          label: String(dayNum),
-        });
+        chartData.push({ date: d, profit: salesByDate.get(d) || 0, label: String(dayNum) });
       }
       setLast7(chartData);
-      // Yesterday's profit for Business Health card
-      setYesterdayProfit(salesByDate.get(addDays(today, -1)) || 0);
-
-      // Recent records (for display)
-      const records: DayRecord[] = [];
-      for (let i = 1; i <= 7; i++) {
-        const d = addDays(today, -i);
-        const rec = await getDayRecordsForRange(d, d);
-        if (rec.length > 0 && rec[0].status !== 'closed') {
-          records.push(rec[0]);
-        }
-        if (records.length >= 5) break;
-      }
-      setRecent(records);
 
       const month = today.slice(0, 7);
       const ms = await getMonthSummary(month);
       setMonthSummary(ms);
     })();
-  }, [date, day, lang]);
+  }, [date]);
 
-  const monthLabel = formatMonth(todayStr().slice(0, 7), lang);
-  const todayHasData = day && (day.saleCount > 0 || day.status === 'closed');
+  const monthLabel = formatMonth(todayStr().slice(0, 7));
 
-  // Aggregate stock values
-  const totalStock = useMemo(() => categories.reduce((a, c) => a + (inventory[c.id] || 0), 0), [categories, inventory]);
-  const outOfStockCount = useMemo(() => categories.filter(c => (inventory[c.id] || 0) === 0).length, [categories, inventory]);
-  const lowStockCount = useMemo(() => categories.filter(c => {
-    const qty = inventory[c.id] || 0;
-    return qty > 0 && qty < MEDIUM_THRESHOLD;
-  }).length, [categories, inventory]);
+  // Compute today vs yesterday comparison
+  const todayVsYesterday = stats && stats.yesterdayProfit !== null
+    ? {
+        diff: stats.todayProfit - stats.yesterdayProfit,
+        pct: stats.yesterdayProfit > 0 ? ((stats.todayProfit - stats.yesterdayProfit) / Math.abs(stats.yesterdayProfit)) * 100 : 0,
+        up: stats.todayProfit > stats.yesterdayProfit,
+      }
+    : null;
 
-  // Outstanding customer payments
-  const outstandingCustomers = activeCredits.length;
-  const outstandingTotal = useMemo(() => activeCredits.reduce((a, c) => a + c.remaining, 0), [activeCredits]);
+  // Compute month vs last month comparison
+  const monthVsLastMonth = stats && stats.lastMonthProfit !== null
+    ? {
+        diff: stats.monthProfit - stats.lastMonthProfit,
+        pct: stats.lastMonthProfit > 0 ? ((stats.monthProfit - stats.lastMonthProfit) / Math.abs(stats.lastMonthProfit)) * 100 : 0,
+        up: stats.monthProfit > stats.lastMonthProfit,
+      }
+    : null;
 
   return (
     <div className="app-shell pb-28">
@@ -128,25 +103,16 @@ export function Dashboard({
       <header className="glass-strong sticky top-0 z-30 safe-top">
         <div className="px-4 py-3 flex items-center gap-3">
           <div className="w-11 h-11 rounded-2xl overflow-hidden flex-shrink-0 shadow-lg">
-            <img src="/icons/icon-1024.png" alt="EggShop" className="w-full h-full object-cover" />
+            <img src="/icons/icon-1024.png" alt="Shop Manager" className="w-full h-full object-cover" />
           </div>
           <div className="flex-1 min-w-0">
             <h1 className="text-base font-bold text-stone-800 dark:text-amber-50 truncate">
               {shopName || t('app.name')}
             </h1>
             <p className="text-xs text-stone-600 dark:text-amber-100/70 truncate">
-              {t(greetingKey())}
-              {ownerName ? `, ${ownerName}` : ''}
+              {t(greetingKey())}{ownerName ? `, ${ownerName}` : ''}
             </p>
           </div>
-          <button
-            onClick={onChangePrice}
-            className="w-10 h-10 rounded-full glass-primary flex items-center justify-center text-white active:scale-90 transition-transform"
-            aria-label={t('dashboard.changePrice')}
-            title={t('dashboard.changePrice')}
-          >
-            <TagIcon size={18} />
-          </button>
           <button
             onClick={onOpenSettings}
             className="w-10 h-10 rounded-full glass flex items-center justify-center text-stone-700 dark:text-amber-50 active:scale-90 transition-transform"
@@ -158,110 +124,180 @@ export function Dashboard({
       </header>
 
       <main className="px-4 py-4 space-y-4 max-w-2xl mx-auto w-full">
-        {/* Today status */}
+        {/* Top row: Cash Available + Gross Profit + Net Profit */}
         <motion.section
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
-          className="glass-strong rounded-3xl p-5"
+          className="grid grid-cols-2 gap-3"
         >
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <p className="text-xs text-stone-500 dark:text-amber-100/60 mb-0.5">{t('dashboard.todayStatus')}</p>
-              <h2 className="text-xl font-bold text-stone-800 dark:text-amber-50">{formatDateShort(date, lang)}</h2>
-            </div>
-            {todayHasData ? (
-              <div className="px-3 py-1.5 rounded-full glass-success text-white text-xs font-semibold">
-                {t('dashboard.hasData')}
-              </div>
-            ) : (
-              <div className="px-3 py-1.5 rounded-full glass-info text-white text-xs font-semibold">
-                {t('dashboard.start')}
-              </div>
-            )}
-          </div>
-
-          <div className="grid grid-cols-2 gap-3">
-            <BigStat
-              icon={<TrendingUp size={18} />}
-              label={t('dashboard.todayProfit')}
-              value={day ? formatCurrency(day.totalProfit, currency) : '—'}
-              variant={day && day.totalProfit < 0 ? 'danger' : 'success'}
-            />
-            <BigStat
-              icon={<Egg size={18} />}
-              label={t('dashboard.todayEggs')}
-              value={day ? `${formatNumber(day.totalEggs)} ${lang === 'si' ? 'ක්' : ''}`.trim() : `0 ${lang === 'si' ? 'ක්' : ''}`.trim()}
-              variant="primary"
-            />
-            <BigStat
-              icon={<Wallet size={18} />}
-              label={t('dashboard.todaySell')}
-              value={day ? formatCurrency(day.totalSell, currency) : '—'}
-              variant="info"
-            />
-            <BigStat
-              icon={<Coins size={18} />}
-              label={t('dashboard.todayBuy')}
-              value={day ? formatCurrency(day.totalBuy, currency) : '—'}
-              variant="muted"
-            />
-          </div>
+          <BigStat
+            icon={<Wallet size={18} />}
+            label={t('dashboard.cashAvailable')}
+            value={stats ? formatCurrency(stats.cashAvailable, currency) : '—'}
+            variant="success"
+            sublabel={t('dashboard.cashAvailableDesc')}
+            fullWidth
+          />
         </motion.section>
 
-        {/* Business Health Card — today vs yesterday */}
-        {day && yesterdayProfit !== null && (
-          <motion.section
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.02 }}
-            className="glass-strong rounded-3xl p-5"
-          >
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <h3 className="font-bold text-stone-800 dark:text-amber-50">{t('health.title')}</h3>
-              </div>
-              <div className={`px-3 py-1 rounded-full text-xs font-bold ${
-                day.totalProfit < 0 ? 'glass-danger text-white'
-                : day.totalProfit > yesterdayProfit ? 'glass-success text-white' : 'glass text-stone-700 dark:text-amber-100'
-              }`}>
-                {day.totalProfit < 0 ? t('health.worstDay') : day.totalProfit > yesterdayProfit ? t('health.goodDay') : t('health.slowDay')}
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="glass rounded-2xl p-3">
-                <p className="text-xs text-stone-600 dark:text-amber-100/70">{t('health.todaySales')}</p>
-                <p className="text-lg font-bold text-stone-800 dark:text-amber-50">{formatCurrency(day.totalSell, currency)}</p>
-              </div>
-              <div className="glass rounded-2xl p-3">
-                <p className="text-xs text-stone-600 dark:text-amber-100/70">{t('health.eggProfit')}</p>
-                <p className={`text-lg font-bold ${day.totalProfit < 0 ? 'text-red-600 dark:text-red-400' : 'text-green-700 dark:text-green-400'}`}>
-                  {formatCurrency(day.totalProfit, currency)}
-                </p>
-              </div>
-            </div>
-            {yesterdayProfit > 0 && (
-              <p className="text-xs text-stone-500 dark:text-amber-100/50 mt-2">
-                {t('health.vsYesterday')}: {day.totalProfit > yesterdayProfit ? '↑' : '↓'} {formatCurrency(Math.abs(day.totalProfit - yesterdayProfit), currency)}
-              </p>
-            )}
-          </motion.section>
-        )}
+        <motion.section
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.02 }}
+          className="grid grid-cols-2 gap-3"
+        >
+          <BigStat
+            icon={<TrendingUp size={18} />}
+            label={t('dashboard.grossProfit')}
+            value={stats ? formatCurrency(stats.grossProfit, currency) : '—'}
+            variant={stats && stats.grossProfit < 0 ? 'danger' : 'success'}
+          />
+          <BigStat
+            icon={<Coins size={18} />}
+            label={t('dashboard.netProfit')}
+            value={stats ? formatCurrency(stats.netProfit, currency) : '—'}
+            variant={stats && stats.netProfit < 0 ? 'danger' : 'primary'}
+            sublabel={stats ? `${t('expense.totalThisMonth')}: ${formatCurrency(stats.monthExpenses, currency)}` : undefined}
+          />
+        </motion.section>
 
-        {/* Inventory summary card */}
+        {/* Dues: Supplier Due + Customer Due */}
         <motion.section
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.04 }}
+          className="grid grid-cols-2 gap-3"
+        >
+          <button onClick={onOpenSuppliers} className="text-left active:scale-[0.98] transition-transform">
+            <BigStat
+              icon={<Truck size={18} />}
+              label={t('dashboard.supplierDue')}
+              value={stats ? formatCurrency(stats.supplierDue, currency) : '—'}
+              variant={stats && stats.supplierDue > 0 ? 'danger' : 'info'}
+              sublabel={t('supplier.title')}
+            />
+          </button>
+          <button onClick={onOpenCredit} className="text-left active:scale-[0.98] transition-transform">
+            <BigStat
+              icon={<Users size={18} />}
+              label={t('dashboard.customerDue')}
+              value={stats ? formatCurrency(stats.customerDue, currency) : '—'}
+              variant={stats && stats.customerDue > 0 ? 'danger' : 'info'}
+              sublabel={t('credit.title')}
+            />
+          </button>
+        </motion.section>
+
+        {/* Today's Sales */}
+        <motion.section
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.06 }}
+          className="glass-strong rounded-3xl p-5"
+        >
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h3 className="font-bold text-stone-800 dark:text-amber-50">{t('dashboard.todaySales')}</h3>
+              <p className="text-xs text-stone-500 dark:text-amber-100/60">{formatDateShort(date)}</p>
+            </div>
+            {todayVsYesterday && (
+              <div className={`px-2.5 py-1 rounded-full text-xs font-bold flex items-center gap-1 ${
+                todayVsYesterday.up
+                  ? 'glass-success text-white'
+                  : todayVsYesterday.diff < 0
+                  ? 'glass-danger text-white'
+                  : 'glass text-stone-700 dark:text-amber-100'
+              }`}>
+                {todayVsYesterday.up ? <ArrowUpRight size={12} /> : <ArrowDownRight size={12} />}
+                {Math.abs(todayVsYesterday.diff) < 1 ? '—' : formatCurrency(Math.abs(todayVsYesterday.diff), currency)}
+              </div>
+            )}
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <div className="glass rounded-2xl p-3">
+              <p className="text-xs text-stone-600 dark:text-amber-100/70">{t('dashboard.todaySell')}</p>
+              <p className="text-base font-bold text-stone-800 dark:text-amber-50">
+                {stats ? formatCurrency(stats.todaySales, currency) : '—'}
+              </p>
+            </div>
+            <div className="glass rounded-2xl p-3">
+              <p className="text-xs text-stone-600 dark:text-amber-100/70">{t('dashboard.todayProfit')}</p>
+              <p className={`text-base font-bold ${stats && stats.todayProfit < 0 ? 'text-red-600 dark:text-red-400' : 'text-green-700 dark:text-green-400'}`}>
+                {stats ? formatCurrency(stats.todayProfit, currency) : '—'}
+              </p>
+            </div>
+            <div className="glass rounded-2xl p-3">
+              <p className="text-xs text-stone-600 dark:text-amber-100/70">{t('dashboard.todayEggs')}</p>
+              <p className="text-base font-bold text-stone-800 dark:text-amber-50">
+                {stats ? `${formatNumber(stats.todayItems)}` : '—'}
+              </p>
+            </div>
+          </div>
+          {todayVsYesterday && (
+            <p className="text-xs text-stone-500 dark:text-amber-100/50 mt-2">
+              {t('dashboard.vsYesterday')}: {todayVsYesterday.up ? '↑' : '↓'} {Math.abs(todayVsYesterday.pct).toFixed(1)}%
+            </p>
+          )}
+        </motion.section>
+
+        {/* Business Health */}
+        {stats && todayVsYesterday && (
+          <motion.section
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.08 }}
+            className="glass-strong rounded-3xl p-5"
+          >
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-bold text-stone-800 dark:text-amber-50">{t('dashboard.businessHealth')}</h3>
+              <div className={`px-3 py-1 rounded-full text-xs font-bold ${
+                stats.todayProfit < 0 ? 'glass-danger text-white' :
+                todayVsYesterday.up ? 'glass-success text-white' : 'glass text-stone-700 dark:text-amber-100'
+              }`}>
+                {stats.todayProfit < 0 ? t('dashboard.worstDay') :
+                 todayVsYesterday.up ? t('dashboard.goodDay') : t('dashboard.slowDay')}
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="glass rounded-2xl p-3">
+                <p className="text-xs text-stone-600 dark:text-amber-100/70">{t('dashboard.vsYesterday')}</p>
+                <p className={`text-lg font-bold ${todayVsYesterday.up ? 'text-green-700 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                  {todayVsYesterday.up ? '↑' : '↓'} {formatCurrency(Math.abs(todayVsYesterday.diff), currency)}
+                </p>
+                <p className="text-[10px] text-stone-500 dark:text-amber-100/50 mt-0.5">
+                  {Math.abs(todayVsYesterday.pct).toFixed(1)}%
+                </p>
+              </div>
+              <div className="glass rounded-2xl p-3">
+                <p className="text-xs text-stone-600 dark:text-amber-100/70">{t('dashboard.vsLastMonth')}</p>
+                <p className={`text-lg font-bold ${monthVsLastMonth?.up ? 'text-green-700 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                  {monthVsLastMonth ? `${monthVsLastMonth.up ? '↑' : '↓'} ${formatCurrency(Math.abs(monthVsLastMonth.diff), currency)}` : '—'}
+                </p>
+                <p className="text-[10px] text-stone-500 dark:text-amber-100/50 mt-0.5">
+                  {monthVsLastMonth ? `${Math.abs(monthVsLastMonth.pct).toFixed(1)}%` : ''}
+                </p>
+              </div>
+            </div>
+          </motion.section>
+        )}
+
+        {/* Stock Alerts */}
+        <motion.section
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
           className="glass-strong rounded-3xl p-5"
         >
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
-              <div className="w-9 h-9 rounded-xl glass-primary flex items-center justify-center text-white">
-                <Package size={16} />
+              <div className="w-9 h-9 rounded-xl glass-danger flex items-center justify-center text-white">
+                <AlertTriangle size={16} />
               </div>
               <div>
-                <h3 className="font-bold text-stone-800 dark:text-amber-50">{t('inventory.currentStock')}</h3>
-                <p className="text-xs text-stone-500 dark:text-amber-100/60">{formatNumber(totalStock)} {t('inventory.eggs')}</p>
+                <h3 className="font-bold text-stone-800 dark:text-amber-50">{t('dashboard.todayStockAlerts')}</h3>
+                <p className="text-xs text-stone-500 dark:text-amber-100/60">
+                  {stats ? `${stats.outOfStockCount} ${t('inventory.outOfStockCount')} · ${stats.lowStockCount} ${t('inventory.lowStockCount')}` : ''}
+                </p>
               </div>
             </div>
             <button
@@ -271,70 +307,85 @@ export function Dashboard({
               {t('dashboard.seeAll')} <ChevronRight size={12} />
             </button>
           </div>
-          {/* Mini inventory chips */}
-          <div className="grid grid-cols-3 gap-2">
-            {categories.map((c) => {
-              const qty = inventory[c.id] || 0;
-              const isOut = qty === 0;
-              const isLow = qty > 0 && qty < MEDIUM_THRESHOLD;
-              return (
-                <div
-                  key={c.id}
-                  onClick={onOpenInventory}
-                  className="glass rounded-xl p-2 cursor-pointer active:scale-95 transition-transform"
-                >
-                  <div className="flex items-center gap-1 mb-1">
-                    <div className="w-2 h-2 rounded-full" style={{ background: c.color }} />
-                    <p className="text-[10px] text-stone-600 dark:text-amber-100/70 truncate">{c.nameKey ? t(c.nameKey) : c.name}</p>
-                  </div>
-                  {isOut ? (
-                    <p className="text-xs font-bold text-red-600 dark:text-red-400">{t('inventory.outOfStock')}</p>
-                  ) : (
-                    <p className={`text-sm font-bold ${isLow ? 'text-orange-600 dark:text-orange-400' : 'text-stone-800 dark:text-amber-50'}`}>
-                      {formatNumber(qty)}
-                    </p>
-                  )}
+          {stats && stats.lowStockProducts.length > 0 ? (
+            <div className="space-y-1.5 max-h-44 overflow-y-auto scroll-area">
+              {stats.lowStockProducts.slice(0, 6).map((p) => (
+                <div key={p.id} className="glass rounded-xl p-2.5 flex items-center justify-between">
+                  <p className="text-sm font-semibold text-stone-800 dark:text-amber-50 truncate">{p.name}</p>
+                  <span className={`text-xs font-bold ${p.qty === 0 ? 'text-red-600 dark:text-red-400' : 'text-orange-600 dark:text-orange-400'}`}>
+                    {formatNumber(p.qty)} / {formatNumber(p.threshold)}
+                  </span>
                 </div>
-              );
-            })}
-          </div>
-          {(lowStockCount > 0 || outOfStockCount > 0) && (
-            <div className="glass rounded-xl p-2.5 mt-2 flex items-start gap-2 text-xs">
-              <AlertTriangle size={12} className="text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
-              <p className="text-amber-700 dark:text-amber-300">
-                {outOfStockCount > 0 && `${outOfStockCount} ${t('inventory.outOfStockCount')}`}
-                {outOfStockCount > 0 && lowStockCount > 0 && ' · '}
-                {lowStockCount > 0 && `${lowStockCount} ${t('inventory.lowStockCount')}`}
-              </p>
+              ))}
+              {stats.lowStockProducts.length > 6 && (
+                <p className="text-xs text-stone-500 dark:text-amber-100/50 text-center pt-1">
+                  +{stats.lowStockProducts.length - 6} more
+                </p>
+              )}
             </div>
+          ) : (
+            <p className="text-sm text-stone-500 dark:text-amber-100/60 text-center py-3">
+              {t('dashboard.noStockAlerts')}
+            </p>
           )}
         </motion.section>
 
-        {/* Outstanding customer payments */}
-        {outstandingCustomers > 0 && (
+        {/* Top Selling Product */}
+        {stats && stats.topProduct && (
           <motion.section
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.06 }}
+            transition={{ delay: 0.12 }}
             className="glass-strong rounded-3xl p-5"
           >
-            <button onClick={onOpenCredit} className="w-full flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="w-9 h-9 rounded-xl glass-danger flex items-center justify-center text-white">
-                  <Users size={16} />
-                </div>
-                <div className="text-left">
-                  <h3 className="font-bold text-stone-800 dark:text-amber-50">{t('dashboard.outstandingPayments')}</h3>
-                  <p className="text-xs text-stone-500 dark:text-amber-100/60">
-                    {outstandingCustomers} {t('dashboard.outstandingCustomers')}
-                  </p>
-                </div>
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-2xl glass-success flex items-center justify-center text-white">
+                <Crown size={20} />
               </div>
-              <ChevronRight size={16} className="text-stone-400 dark:text-amber-100/40" />
-            </button>
-            <div className="mt-3 glass-danger rounded-2xl p-3 flex items-center justify-between">
-              <span className="text-xs text-white opacity-90">{t('dashboard.outstandingTotal')}</span>
-              <span className="text-xl font-bold text-white">{formatCurrency(outstandingTotal, currency)}</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs text-stone-500 dark:text-amber-100/60">{t('dashboard.topSellingProduct')}</p>
+                <p className="font-bold text-stone-800 dark:text-amber-50 truncate">{stats.topProduct.name}</p>
+                <p className="text-xs text-stone-600 dark:text-amber-100/70">
+                  {formatNumber(stats.topProduct.qty)} {t('dashboard.units')} · {formatCurrency(stats.topProduct.profit, currency)}
+                </p>
+              </div>
+            </div>
+          </motion.section>
+        )}
+
+        {/* Monthly Comparison */}
+        {monthVsLastMonth && (
+          <motion.section
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.14 }}
+            className="glass-strong rounded-3xl p-5"
+          >
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <h3 className="font-bold text-stone-800 dark:text-amber-50">{t('dashboard.monthlyComparison')}</h3>
+                <p className="text-xs text-stone-500 dark:text-amber-100/60">{monthLabel}</p>
+              </div>
+              <div className={`px-2.5 py-1 rounded-full text-xs font-bold flex items-center gap-1 ${
+                monthVsLastMonth.up ? 'glass-success text-white' : 'glass-danger text-white'
+              }`}>
+                {monthVsLastMonth.up ? <ArrowUpRight size={12} /> : <ArrowDownRight size={12} />}
+                {Math.abs(monthVsLastMonth.pct).toFixed(1)}%
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="glass rounded-2xl p-3">
+                <p className="text-xs text-stone-600 dark:text-amber-100/70">{t('dashboard.thisMonth')}</p>
+                <p className="text-base font-bold text-stone-800 dark:text-amber-50">
+                  {stats ? formatCurrency(stats.monthProfit, currency) : '—'}
+                </p>
+              </div>
+              <div className="glass rounded-2xl p-3">
+                <p className="text-xs text-stone-600 dark:text-amber-100/70">{t('dashboard.lastMonth')}</p>
+                <p className="text-base font-bold text-stone-500 dark:text-amber-100/60">
+                  {stats ? formatCurrency(stats.lastMonthProfit, currency) : '—'}
+                </p>
+              </div>
             </div>
           </motion.section>
         )}
@@ -343,14 +394,20 @@ export function Dashboard({
         <motion.section
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.08 }}
+          transition={{ delay: 0.16 }}
           className="glass-strong rounded-3xl p-5"
         >
           <div className="flex items-center justify-between mb-3">
             <div>
-              <h3 className="font-bold text-stone-800 dark:text-amber-50">{t('trend.last7')}</h3>
+              <h3 className="font-bold text-stone-800 dark:text-amber-50">{t('trend.monthlyProfit')}</h3>
               <p className="text-xs text-stone-500 dark:text-amber-100/60">{t('dashboard.last5ProfitSub')}</p>
             </div>
+            <button
+              onClick={onSeeAllReports}
+              className="text-xs text-amber-700 dark:text-amber-300 font-semibold flex items-center gap-0.5"
+            >
+              {t('dashboard.seeAll')} <ChevronRight size={12} />
+            </button>
           </div>
           {last7.length > 0 ? (
             <div className="h-48 -mx-2">
@@ -395,66 +452,38 @@ export function Dashboard({
           )}
         </motion.section>
 
-        {/* Month summary */}
-        {monthSummary && (
-          <motion.section
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1 }}
-            className="glass-strong rounded-3xl p-5"
-          >
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <h3 className="font-bold text-stone-800 dark:text-amber-50">{t('dashboard.monthProfit', { month: monthLabel })}</h3>
-                <p className="text-xs text-stone-500 dark:text-amber-100/60">{t('dashboard.monthSummary')}</p>
-              </div>
-              <button
-                onClick={onSeeMonthlyReports}
-                className="text-xs text-amber-700 dark:text-amber-300 font-semibold flex items-center gap-0.5"
-              >
-                {t('dashboard.seeAll')} <ChevronRight size={12} />
-              </button>
-            </div>
-            <div className="grid grid-cols-2 gap-3 mb-3">
-              <BigStat
-                icon={<TrendingUp size={16} />}
-                label={t('dashboard.monthlyProfit')}
-                value={formatCurrency(monthSummary.totalProfit, currency)}
-                variant={monthSummary.totalProfit < 0 ? 'danger' : 'success'}
-              />
-              <BigStat
-                icon={<Egg size={16} />}
-                label={t('dashboard.totalEggs')}
-                value={`${formatNumber(monthSummary.totalEggs)} ${lang === 'si' ? 'ක්' : ''}`.trim()}
-                variant="primary"
-              />
-            </div>
-            <div className="grid grid-cols-3 gap-2 text-center">
-              <MiniStat label={t('dashboard.openDays')} value={`${monthSummary.openDays}`} />
-              <MiniStat label={t('dashboard.closedDays')} value={`${monthSummary.closedDays}`} />
-              <MiniStat label={t('dashboard.dailyAvg')} value={formatCurrency(monthSummary.averageDailyProfit, currency)} />
-            </div>
-          </motion.section>
-        )}
-
-        {/* Suppliers quick link */}
+        {/* Quick links */}
         <motion.section
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2 }}
+          className="grid grid-cols-2 gap-3"
         >
           <button
-            onClick={onOpenSuppliers}
-            className="w-full glass-strong rounded-3xl p-4 flex items-center gap-3 active:scale-[0.98] transition-transform"
+            onClick={onOpenInventory}
+            className="glass-strong rounded-3xl p-4 flex items-center gap-3 active:scale-[0.98] transition-transform"
           >
-            <div className="w-12 h-12 rounded-2xl glass-info flex items-center justify-center text-white">
-              <Package size={20} />
+            <div className="w-11 h-11 rounded-2xl glass-primary flex items-center justify-center text-white">
+              <Package size={18} />
             </div>
-            <div className="flex-1 text-left">
-              <p className="font-bold text-stone-800 dark:text-amber-50">{t('supplier.title')}</p>
-              <p className="text-xs text-stone-600 dark:text-amber-100/70">{t('supplier.sub')}</p>
+            <div className="text-left flex-1 min-w-0">
+              <p className="font-bold text-sm text-stone-800 dark:text-amber-50">{t('inventory.title')}</p>
+              <p className="text-xs text-stone-600 dark:text-amber-100/70 truncate">{t('inventory.sub')}</p>
             </div>
-            <ChevronRight size={18} className="text-stone-400 dark:text-amber-100/40" />
+            <ChevronRight size={16} className="text-stone-400 dark:text-amber-100/40" />
+          </button>
+          <button
+            onClick={onOpenExpenses}
+            className="glass-strong rounded-3xl p-4 flex items-center gap-3 active:scale-[0.98] transition-transform"
+          >
+            <div className="w-11 h-11 rounded-2xl glass-info flex items-center justify-center text-white">
+              <ShoppingBag size={18} />
+            </div>
+            <div className="text-left flex-1 min-w-0">
+              <p className="font-bold text-sm text-stone-800 dark:text-amber-50">{t('expense.title')}</p>
+              <p className="text-xs text-stone-600 dark:text-amber-100/70 truncate">{t('expense.sub')}</p>
+            </div>
+            <ChevronRight size={16} className="text-stone-400 dark:text-amber-100/40" />
           </button>
         </motion.section>
       </main>
@@ -462,11 +491,13 @@ export function Dashboard({
   );
 }
 
-function BigStat({ icon, label, value, variant }: {
+function BigStat({ icon, label, value, variant, sublabel, fullWidth }: {
   icon: React.ReactNode;
   label: string;
   value: string;
   variant: 'primary' | 'success' | 'info' | 'muted' | 'danger';
+  sublabel?: string;
+  fullWidth?: boolean;
 }) {
   const colorMap = {
     primary: 'glass-primary',
@@ -476,21 +507,13 @@ function BigStat({ icon, label, value, variant }: {
     danger: 'glass-danger',
   };
   return (
-    <div className={`${colorMap[variant]} rounded-2xl p-4`}>
+    <div className={`${colorMap[variant]} rounded-3xl p-4 ${fullWidth ? 'col-span-2' : ''}`}>
       <div className="flex items-center gap-1.5 mb-1.5 opacity-90">
         {icon}
         <span className="text-xs">{label}</span>
       </div>
       <p className="text-xl font-bold leading-tight">{value}</p>
-    </div>
-  );
-}
-
-function MiniStat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="glass rounded-xl py-2.5 px-2">
-      <p className="text-xs text-stone-600 dark:text-amber-100/70 mb-0.5">{label}</p>
-      <p className="font-bold text-sm text-stone-800 dark:text-amber-50 truncate">{value}</p>
+      {sublabel && <p className="text-[10px] opacity-80 mt-1 truncate">{sublabel}</p>}
     </div>
   );
 }

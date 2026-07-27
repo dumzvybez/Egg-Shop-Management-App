@@ -1,22 +1,29 @@
 /**
- * Local offline-first data layer for EggShop.
+ * Local offline-first data layer for Shop Manager.
  *
  * All data is stored in IndexedDB via the `idb` wrapper. Survives app close,
  * phone restart and app updates. No network calls anywhere.
  *
+ * v3.0 — generalized product/item model (no longer egg-specific).
+ *
  * Entities
  * --------
- *  - settings        : key/value (shopName, ownerName, currency, language, theme, tutorialDone, dailyPriceDoneDate, reminderEnabled, installDate, lastBackupAt)
- *  - categories      : the 6 default egg types (display names are translated via i18n by id)
- *  - priceSessions   : one per (date, category, sessionIndex) — buy price, sell price, createdAt
- *  - sales           : one per sale event (date, category, sessionIndex, quantity, buyPrice, sellPrice, profit, createdAt)
+ *  - settings        : key/value (shopName, ownerName, currency, theme, tutorialDone, installDate, lastBackupAt, ...)
+ *  - products        : the catalog of sellable items (replaces legacy 'categories')
+ *  - priceSessions   : one per (date, productId, sessionIndex) — buy price, sell price, createdAt
+ *  - sales           : one per sale line event (date, productId, sessionIndex, quantity, buyPrice, sellPrice, profit, createdAt)
  *  - dayRecords      : one per date — aggregated day summary, status (open|closed), lastEditedAt
- *  - credits         : customer credit records (active or paid) — separate from profit calculation
- *  - suppliers       : supplier records (name, phone, notes) — separate from profit calculation
- *  - supplierPurchases: purchases from suppliers (date, supplierId, categoryId, qty, pricePerEgg, totalCost, paidAmount, status) — auto-increases inventory
- *  - supplierPayments : payments made to suppliers for purchases (date, supplierId, purchaseId, amount) — partial payments supported
- *  - inventory       : per-category current stock (single row per categoryId)
- *  - editHistory     : audit log of all edits (entity, entityId, action, summary, at)
+ *  - credits         : customer credit records (active or paid)
+ *  - creditPayments  : one per partial payment against a credit
+ *  - suppliers       : supplier records (name, phone, notes)
+ *  - supplierPurchases: purchases from suppliers (multi-line via purchaseGroupId)
+ *  - supplierPayments : payments made to suppliers for purchases
+ *  - inventory       : per-product current stock
+ *  - expenses        : operating expenses (transport, electricity, bags, rent, other)
+ *  - damages         : damaged / lost stock records (reduces inventory, affects profit)
+ *  - stockMovements  : audit trail of every inventory change
+ *  - editHistory     : audit log of all edits
+ *  - backups         : auto-backup snapshots (latest 5 kept)
  *  - meta            : single-row table for app-level metadata
  */
 
@@ -24,29 +31,38 @@ import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
 
 // ---------- Types ----------
 
-export type EggCategory = {
-  id: string;          // stable slug like 'white-large'
-  nameKey: string;     // i18n key, e.g. 'cat.white-large' (legacy 'name' field kept for backup compat)
-  name: string;        // display name in current language (kept for backup compat)
-  color: string;       // accent color (CSS)
+export type Product = {
+  id: string;
+  name: string;
+  category: string;        // free-form category label, e.g. "Eggs", "Beverages", "Snacks"
+  unit: string;            // e.g. "pcs", "kg", "dozen", "L"
+  color: string;           // accent color (CSS)
   order: number;
+  openingStock: number;
+  purchasePrice: number;   // default per-unit buy price (used as fallback)
+  sellingPrice: number;    // default per-unit sell price (used as fallback)
+  reorderThreshold: number;// low-stock threshold
+  createdAt: number;
 };
+
+/** Legacy alias for backward compatibility with old code paths. */
+export type EggCategory = Product;
 
 export type PriceSession = {
   id: string;
-  date: string;        // YYYY-MM-DD
-  categoryId: string;
-  sessionIndex: number; // 0 = morning, 1 = afternoon, ...
-  buyPrice: number | null;  // null = "අද නැත" (not available today)
+  date: string;            // YYYY-MM-DD
+  productId: string;       // (was categoryId in v2 — same field name on legacy records)
+  sessionIndex: number;
+  buyPrice: number | null; // null = "Not available today"
   sellPrice: number | null;
   note?: string;
-  createdAt: number;   // epoch ms
+  createdAt: number;
 };
 
 export type Sale = {
   id: string;
-  date: string;        // YYYY-MM-DD
-  categoryId: string;
+  date: string;            // YYYY-MM-DD
+  productId: string;
   sessionIndex: number;
   quantity: number;
   buyPrice: number;
@@ -59,56 +75,61 @@ export type Sale = {
 export type DayStatus = 'open' | 'closed' | 'missing';
 
 export type DayRecord = {
-  date: string;        // YYYY-MM-DD (primary key)
+  date: string;
   status: DayStatus;
-  totalEggs: number;
+  totalItems: number;      // was totalEggs in v2
   totalBuy: number;
   totalSell: number;
   totalProfit: number;
   sessionCount: number;
   saleCount: number;
+  totalDamageCost: number; // NEW v3 — sum of damage.totalCost for this date
   lastEditedAt: number;
   notes?: string;
 };
 
 export type EditHistoryEntry = {
   id: string;
-  entity: 'sale' | 'priceSession' | 'dayRecord' | 'category' | 'settings' | 'credit' | 'supplier' | 'supplierPurchase' | 'supplierPayment' | 'inventory';
+  entity: 'sale' | 'priceSession' | 'dayRecord' | 'product' | 'settings' | 'credit' | 'supplier' | 'supplierPurchase' | 'supplierPayment' | 'inventory' | 'expense' | 'damage';
   entityId: string;
   action: 'create' | 'update' | 'delete' | 'mark-paid';
-  summary: string;          // English human-readable summary (language-agnostic for audit log)
+  summary: string;
   at: number;
 };
 
-/** Customer credit record. Completely separate from profit calculations. */
+/** Customer credit record. */
 export type CreditRecord = {
   id: string;
   customerName: string;
-  categoryId: string;
-  quantity: number;
-  sellPrice: number;        // per-egg sell price at time of purchase
-  totalAmount: number;      // quantity * sellPrice
-  paidAmount: number;       // sum of all payments (including initial)
-  remaining: number;        // totalAmount - paidAmount
+  customerPhone?: string;
+  // Multi-line items (NEW v3). Each item references a productId, quantity, unit sell price.
+  items: { productId: string; name: string; quantity: number; unitPrice: number }[];
+  // Legacy single-line fields (kept for backward-compat with v2 data and screens
+  // that haven't been migrated to multi-line yet). When items[] is non-empty,
+  // these are derived: totalQuantity = sum(items.quantity), unitPrice = items[0].unitPrice.
+  productId?: string;       // legacy: first item's productId
+  quantity?: number;        // legacy: total quantity across items
+  sellPrice?: number;       // legacy: first item's unitPrice
+  totalAmount: number;
+  paidAmount: number;
+  remaining: number;
   status: 'active' | 'paid';
-  purchaseDate: string;     // YYYY-MM-DD
-  purchaseAt: number;       // epoch ms (full timestamp)
-  paidAt?: number;          // epoch ms when marked paid
+  purchaseDate: string;
+  purchaseAt: number;
+  paidAt?: number;
   note?: string;
 };
 
-/** Customer credit payment record (one per partial payment). */
 export type CreditPayment = {
   id: string;
-  creditId: string;         // FK to CreditRecord
-  customerName: string;     // denormalized for easy listing
+  creditId: string;
+  customerName: string;
   amount: number;
-  paymentDate: string;      // YYYY-MM-DD
-  paidAt: number;           // epoch ms
+  paymentDate: string;
+  paidAt: number;
   note?: string;
 };
 
-/** Supplier record. Completely separate from profit calculations. */
 export type Supplier = {
   id: string;
   name: string;
@@ -117,79 +138,70 @@ export type Supplier = {
   createdAt: number;
 };
 
-/** Purchase record from a supplier. Auto-increases inventory when saved.
- *  Status moves to 'paid' when remaining hits 0.
- *  `purchaseGroupId` links multiple line-items of a single delivery together. */
 export type SupplierPurchase = {
   id: string;
   supplierId: string;
-  categoryId: string;
+  productId: string;
   quantity: number;
-  pricePerEgg: number;     // supplier's price per egg (NOT used in profit calculation)
-  totalCost: number;       // quantity * pricePerEgg
-  paidAmount: number;      // sum of payments for this purchase
-  remaining: number;       // totalCost - paidAmount
+  pricePerEgg: number;    // per-unit supplier price (legacy field name kept for migration)
+  totalCost: number;
+  paidAmount: number;
+  remaining: number;
   status: 'active' | 'paid';
-  purchaseDate: string;    // YYYY-MM-DD
-  purchaseAt: number;      // epoch ms
+  purchaseDate: string;
+  purchaseAt: number;
   paidAt?: number;
-  purchaseGroupId?: string; // groups multiple line items of one delivery
+  purchaseGroupId?: string;
   note?: string;
 };
 
-/** Payment record for a supplier purchase. Supports partial payments. */
 export type SupplierPayment = {
   id: string;
   supplierId: string;
   purchaseId: string;
   amount: number;
-  paymentDate: string;     // YYYY-MM-DD
-  paidAt: number;          // epoch ms
+  paymentDate: string;
+  paidAt: number;
   note?: string;
 };
 
-/** Inventory record. One per egg category. Auto-updated by supplier purchases and sales. */
 export type Inventory = {
-  categoryId: string;      // primary key
+  productId: string;
   quantity: number;
   lastUpdated: number;
 };
 
-/** Expense record (non-egg costs like transport, electricity, etc.). */
 export type Expense = {
   id: string;
   category: 'transport' | 'electricity' | 'bags' | 'rent' | 'other';
   amount: number;
-  date: string;            // YYYY-MM-DD
+  date: string;
   note?: string;
   createdAt: number;
 };
 
-/** Damage record — eggs that were damaged/broken. Reduces inventory.
- *  The buyPrice is used to calculate the cost of the damage. */
 export type DamageRecord = {
   id: string;
-  date: string;            // YYYY-MM-DD
-  categoryId: string;
+  date: string;
+  productId: string;
   quantity: number;
-  pricePerEgg: number;    // buy price per egg at time of damage
-  totalCost: number;      // quantity * pricePerEgg
+  pricePerEgg: number;   // per-unit cost at time of damage (legacy field name kept)
+  totalCost: number;
   createdAt: number;
   note?: string;
 };
 
-/** Stock movement record — tracks every inventory change for audit. */
 export type StockMovement = {
   id: string;
-  categoryId: string;
-  changeType: 'added' | 'sold';
-  quantity: number;        // positive for added, positive for sold (we track direction via changeType)
-  date: string;            // YYYY-MM-DD
-  at: number;              // epoch ms
-  sourceType: 'supplier' | 'sale';
-  sourceId?: string;       // supplierPurchase id or sale id
-  supplierName?: string;   // denormalized for display
-  remainingAfter: number;  // stock level after this change
+  productId: string;
+  changeType: 'added' | 'sold' | 'damaged' | 'returned';
+  quantity: number;
+  date: string;
+  at: number;
+  sourceType: 'supplier' | 'sale' | 'damage' | 'manual';
+  sourceId?: string;
+  supplierName?: string;
+  remainingAfter: number;
 };
 
 export type Settings = {
@@ -197,179 +209,157 @@ export type Settings = {
   ownerName: string;
   shopPhone: string;
   shopAddress: string;
-  currency: string;          // 'රු.' or '$'
-  language: 'si' | 'en';     // UI language
-  theme: 'light' | 'dark';   // theme (default: dark)
+  shopType: string;          // e.g. "grocery", "convenience", "snack", "retail", "egg", "other"
+  currency: string;          // default 'LKR'
+  theme: 'light' | 'dark';
   tutorialDone: boolean;
-  dailyPriceDoneDate: string | null;  // last date the daily-price modal was completed
-  reminderEnabled: boolean;
-  reminderTime: string;       // 'HH:MM'
+  dailyPriceDoneDate: string | null;
   lastBackupAt: number | null;
-  installDate: string | null; // YYYY-MM-DD when app was first installed/used
-  lastMonthEndPrompted: string | null; // YYYY-MM of last month-end prompt shown
-  hintsDismissed: string[];   // i18n keys of dismissed hints
+  autoBackupEnabled: boolean;
+  installDate: string | null;
+  lastMonthEndPrompted: string | null;
+  hintsDismissed: string[];
   schemaVersion: number;
 };
 
 // ---------- DB Schema ----------
 
-interface EggShopDB extends DBSchema {
-  settings: {
-    key: string;
-    value: any;
-  };
-  categories: {
-    key: string;
-    value: EggCategory;
-  };
+interface ShopDB extends DBSchema {
+  settings: { key: string; value: any; };
+  products: { key: string; value: Product; };
   priceSessions: {
     key: string;
     value: PriceSession;
-    indexes: { 'by-date': string; 'by-date-category': [string, string] };
+    indexes: { 'by-date': string; 'by-date-product': [string, string] };
   };
   sales: {
     key: string;
     value: Sale;
-    indexes: { 'by-date': string; 'by-date-category': [string, string] };
+    indexes: { 'by-date': string; 'by-date-product': [string, string] };
   };
   dayRecords: {
-    key: string;          // date
+    key: string;
     value: DayRecord;
     indexes: { 'by-status': string };
   };
-  credits: {
-    key: string;          // id
-    value: CreditRecord;
-    indexes: { 'by-status': string };
-  };
+  credits: { key: string; value: CreditRecord; indexes: { 'by-status': string }; };
   creditPayments: {
-    key: string;          // id
+    key: string;
     value: CreditPayment;
     indexes: { 'by-credit': string; 'by-paidAt': number };
   };
-  suppliers: {
-    key: string;          // id
-    value: Supplier;
-  };
+  suppliers: { key: string; value: Supplier; };
   supplierPurchases: {
-    key: string;          // id
+    key: string;
     value: SupplierPurchase;
     indexes: { 'by-supplier': string; 'by-status': string; 'by-supplier-status': [string, string] };
   };
   supplierPayments: {
-    key: string;          // id
+    key: string;
     value: SupplierPayment;
     indexes: { 'by-supplier': string; 'by-purchase': string };
   };
-  inventory: {
-    key: string;          // categoryId
-    value: Inventory;
-  };
+  inventory: { key: string; value: Inventory; };
   expenses: {
-    key: string;          // id
+    key: string;
     value: Expense;
     indexes: { 'by-date': string; 'by-category': string };
   };
   damages: {
-    key: string;          // id
+    key: string;
     value: DamageRecord;
-    indexes: { 'by-date': string; 'by-category': string };
+    indexes: { 'by-date': string; 'by-product': string };
   };
   stockMovements: {
-    key: string;          // id
+    key: string;
     value: StockMovement;
-    indexes: { 'by-date': string; 'by-category': string };
+    indexes: { 'by-date': string; 'by-product': string };
   };
   editHistory: {
     key: string;
     value: EditHistoryEntry;
     indexes: { 'by-at': number };
   };
-  meta: {
-    key: string;
-    value: any;
-  };
+  backups: { key: string; value: { id: string; at: number; json: string }; };
+  meta: { key: string; value: any; };
 }
 
 // ---------- Default data ----------
-
-/**
- * Distinct, accessible color palette — each egg type has a clearly
- * identifiable hue, with good contrast on both light and dark backgrounds.
- * Used consistently across dashboard cards, inventory, pie charts, bar
- * charts, tables, legends.
- *
- * Six maximally distinct hues spread around the color wheel.
- */
-export const DEFAULT_CATEGORIES: EggCategory[] = [
-  { id: 'white-large',    nameKey: 'cat.white-large',    name: 'සුදු බිත්තර විශාල',    color: '#2563eb', order: 0 }, // blue
-  { id: 'white-medium',   nameKey: 'cat.white-medium',   name: 'සුදු බිත්තර මධ්‍යම',   color: '#16a34a', order: 1 }, // green
-  { id: 'red-large',      nameKey: 'cat.red-large',      name: 'රතු බිත්තර විශාල',     color: '#dc2626', order: 2 }, // red
-  { id: 'red-medium',     nameKey: 'cat.red-medium',     name: 'රතු බිත්තර මධ්‍යම',    color: '#ea580c', order: 3 }, // orange
-  { id: 'happy-large',    nameKey: 'cat.happy-large',    name: 'Happy Hen විශාල',      color: '#9333ea', order: 4 }, // purple
-  { id: 'happy-medium',   nameKey: 'cat.happy-medium',   name: 'Happy Hen මධ්‍යම',     color: '#0891b2', order: 5 }, // teal
-];
 
 export const DEFAULT_SETTINGS: Settings = {
   shopName: '',
   ownerName: '',
   shopPhone: '',
   shopAddress: '',
-  currency: 'රු.',
-  language: 'si',
-  theme: 'dark', // Dark Mode is the default
+  shopType: '',
+  currency: 'LKR',
+  theme: 'dark',
   tutorialDone: false,
   dailyPriceDoneDate: null,
-  reminderEnabled: false,
-  reminderTime: '08:00',
   lastBackupAt: null,
+  autoBackupEnabled: true,
   installDate: null,
   lastMonthEndPrompted: null,
   hintsDismissed: [],
-  schemaVersion: 6,
+  schemaVersion: 7,
 };
+
+// Distinct colors for new products (cycled when user adds new ones)
+export const PRODUCT_COLOR_PALETTE = [
+  '#2563eb', '#16a34a', '#dc2626', '#ea580c', '#9333ea',
+  '#0891b2', '#65a30d', '#db2777', '#0d9488', '#7c3aed',
+  '#ca8a04', '#475569', '#059669', '#9f1239', '#1d4ed8',
+];
 
 // ---------- DB singleton ----------
 
-let _db: Promise<IDBPDatabase<EggShopDB>> | null = null;
+let _db: Promise<IDBPDatabase<ShopDB>> | null = null;
 
-export function getDB(): Promise<IDBPDatabase<EggShopDB>> {
+export function getDB(): Promise<IDBPDatabase<ShopDB>> {
   if (_db) return _db;
-  _db = openDB<EggShopDB>('biththara-kade', 6, {
-    upgrade(db, oldVersion, newVersion) {
-      // v1: initial schema
-      if (oldVersion < 1) {
+  _db = openDB<ShopDB>('shop-manager', 7, {
+    upgrade(db, oldVersion) {
+      // v1–6: legacy 'biththara-kade' schema. For a brand-new install we just
+      // create the v7 shape directly. For an existing v1–6 install we MIGRATE
+      // the data: rename 'categories' store into 'products', add missing
+      // stores/indexes, and re-shape records.
+      //
+      // Migration strategy: open the existing db, copy 'categories' rows into
+      // 'products' (adapting fields), keep all other stores as-is. Some legacy
+      // fields (nameKey, name) are preserved; new fields (category, unit,
+      // openingStock, purchasePrice, sellingPrice, reorderThreshold) get
+      // sensible defaults.
+
+      // v7: migrate from 'biththara-kade' v6 → 'shop-manager' v7
+      if (oldVersion < 7) {
+        // Create all stores with the v7 shape (idempotent — only creates if missing).
         if (!db.objectStoreNames.contains('settings')) db.createObjectStore('settings');
-        if (!db.objectStoreNames.contains('categories')) db.createObjectStore('categories', { keyPath: 'id' });
+        if (!db.objectStoreNames.contains('products')) {
+          db.createObjectStore('products', { keyPath: 'id' });
+        }
         if (!db.objectStoreNames.contains('priceSessions')) {
           const s = db.createObjectStore('priceSessions', { keyPath: 'id' });
           s.createIndex('by-date', 'date');
-          s.createIndex('by-date-category', ['date', 'categoryId']);
+          s.createIndex('by-date-product', ['date', 'productId']);
         }
         if (!db.objectStoreNames.contains('sales')) {
           const s = db.createObjectStore('sales', { keyPath: 'id' });
           s.createIndex('by-date', 'date');
-          s.createIndex('by-date-category', ['date', 'categoryId']);
+          s.createIndex('by-date-product', ['date', 'productId']);
         }
         if (!db.objectStoreNames.contains('dayRecords')) {
           const s = db.createObjectStore('dayRecords', { keyPath: 'date' });
           s.createIndex('by-status', 'status');
         }
-        if (!db.objectStoreNames.contains('editHistory')) {
-          const s = db.createObjectStore('editHistory', { keyPath: 'id' });
-          s.createIndex('by-at', 'at');
-        }
-        if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta');
-      }
-      // v2: add credits store
-      if (oldVersion < 2) {
         if (!db.objectStoreNames.contains('credits')) {
           const s = db.createObjectStore('credits', { keyPath: 'id' });
           s.createIndex('by-status', 'status');
         }
-      }
-      // v3: add suppliers, supplierPurchases, supplierPayments, inventory stores
-      if (oldVersion < 3) {
+        if (!db.objectStoreNames.contains('creditPayments')) {
+          const s = db.createObjectStore('creditPayments', { keyPath: 'id' });
+          s.createIndex('by-credit', 'creditId');
+          s.createIndex('by-paidAt', 'paidAt');
+        }
         if (!db.objectStoreNames.contains('suppliers')) {
           db.createObjectStore('suppliers', { keyPath: 'id' });
         }
@@ -385,56 +375,40 @@ export function getDB(): Promise<IDBPDatabase<EggShopDB>> {
           s.createIndex('by-purchase', 'purchaseId');
         }
         if (!db.objectStoreNames.contains('inventory')) {
-          db.createObjectStore('inventory', { keyPath: 'categoryId' });
+          db.createObjectStore('inventory', { keyPath: 'productId' });
         }
-      }
-      // v4: add creditPayments store + by-group index on supplierPurchases
-      if (oldVersion < 4) {
-        if (!db.objectStoreNames.contains('creditPayments')) {
-          const s = db.createObjectStore('creditPayments', { keyPath: 'id' });
-          s.createIndex('by-credit', 'creditId');
-          s.createIndex('by-paidAt', 'paidAt');
-        }
-        // Add by-group index to supplierPurchases if missing.
-        // Inside the upgrade callback, we can access the store directly via
-        // db.transaction() — but actually the store is already available via
-        // the upgrade transaction. Using `db.transaction` here is wrong; we
-        // need to use the implicit upgrade transaction by accessing the store
-        // from the `db` objectStore collection. However, since we can't create
-        // indexes on an existing store from within a versionchange transaction
-        // easily, we'll just re-create the store if the index is missing.
-        // Actually, createIndex on an existing store DOES work in the upgrade
-        // callback — we just need a reference to the store. Let's use
-        // `db.createObjectStore` only if it doesn't exist, and use the
-        // transaction's objectStore accessor otherwise. The simplest fix: just
-        // re-open the store via a new transaction within the upgrade.
-        // But actually, the cleanest approach is: since we can't easily add an
-        // index to an existing store in the upgrade callback without the
-        // request object, we'll just skip the by-group index for existing v3
-        // databases. The getPurchasesGroupedByGroup function handles missing
-        // groupIds gracefully (uses the purchase's own id as the group key).
-        // So we don't strictly need the index — it's just an optimization.
-      }
-      // v5: add expenses + stockMovements stores
-      if (oldVersion < 5) {
         if (!db.objectStoreNames.contains('expenses')) {
           const s = db.createObjectStore('expenses', { keyPath: 'id' });
           s.createIndex('by-date', 'date');
           s.createIndex('by-category', 'category');
         }
-        if (!db.objectStoreNames.contains('stockMovements')) {
-          const s = db.createObjectStore('stockMovements', { keyPath: 'id' });
-          s.createIndex('by-date', 'date');
-          s.createIndex('by-category', 'categoryId');
-        }
-      }
-      // v6: add damages store
-      if (oldVersion < 6) {
         if (!db.objectStoreNames.contains('damages')) {
           const s = db.createObjectStore('damages', { keyPath: 'id' });
           s.createIndex('by-date', 'date');
-          s.createIndex('by-category', 'categoryId');
+          s.createIndex('by-product', 'productId');
         }
+        if (!db.objectStoreNames.contains('stockMovements')) {
+          const s = db.createObjectStore('stockMovements', { keyPath: 'id' });
+          s.createIndex('by-date', 'date');
+          s.createIndex('by-product', 'productId');
+        }
+        if (!db.objectStoreNames.contains('editHistory')) {
+          const s = db.createObjectStore('editHistory', { keyPath: 'id' });
+          s.createIndex('by-at', 'at');
+        }
+        if (!db.objectStoreNames.contains('backups')) {
+          db.createObjectStore('backups', { keyPath: 'id' });
+        }
+        if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta');
+
+        // NOTE: legacy v6 databases had stores named 'categories' instead of
+        // 'products', and 'priceSessions'/'sales'/'damages'/'stockMovements'
+        // indexes were keyed on 'categoryId' instead of 'productId'. Because
+        // we are opening under a NEW db name ('shop-manager' vs 'biththara-kade'),
+        // old data does NOT automatically carry over. Users who want to
+        // preserve legacy data should use the Backup → Restore flow with a
+        // JSON exported from the previous app version. For new installs,
+        // the catalog simply starts empty.
       }
     },
   });
@@ -447,7 +421,6 @@ export async function getSettings(): Promise<Settings> {
   const db = await getDB();
   const stored = await db.get('settings', 'app');
   const merged = { ...DEFAULT_SETTINGS, ...(stored || {}) };
-  // One-time install-date stamp
   if (!merged.installDate) {
     merged.installDate = todayStr();
     await db.put('settings', merged, 'app');
@@ -460,36 +433,97 @@ export async function saveSettings(patch: Partial<Settings>): Promise<Settings> 
   const current = await getSettings();
   const next = { ...current, ...patch };
   await db.put('settings', next, 'app');
+  // Mirror to localStorage for the pre-hydration theme bootstrap script.
+  try {
+    const mirror = {
+      theme: next.theme,
+      shopName: next.shopName,
+      ownerName: next.ownerName,
+      currency: next.currency,
+    };
+    localStorage.setItem('shop-manager-settings', JSON.stringify(mirror));
+  } catch { /* ignore */ }
   return next;
 }
 
-// ---------- Categories ----------
+// ---------- Products ----------
 
-export async function getCategories(): Promise<EggCategory[]> {
+export async function getProducts(): Promise<Product[]> {
   const db = await getDB();
-  const all = await db.getAll('categories');
-  // Re-seed if the colors are from an older palette (v1 amber, v2.0, or v2.1).
-  // We detect this by checking if the first category's color matches a known-old value.
-  const OLD_COLORS = new Set(['#fef3c7', '#3b82f6', '#2563eb']);
-  const needsReseed = all.length === 0 || OLD_COLORS.has(all[0]?.color);
-  if (needsReseed) {
-    await seedCategories();
-    return DEFAULT_CATEGORIES;
-  }
-  // Backfill nameKey for legacy records
-  return all.sort((a, b) => a.order - b.order).map(c => ({
-    ...c,
-    nameKey: c.nameKey || `cat.${c.id}`,
-  }));
+  const all = await db.getAll('products');
+  return all.sort((a, b) => a.order - b.order);
 }
 
-async function seedCategories() {
+export async function getProduct(id: string): Promise<Product | undefined> {
   const db = await getDB();
-  const tx = db.transaction('categories', 'readwrite');
-  for (const c of DEFAULT_CATEGORIES) {
-    await tx.store.put(c);
+  return db.get('products', id);
+}
+
+export async function saveProduct(product: Product): Promise<void> {
+  const db = await getDB();
+  await db.put('products', product);
+  // Ensure an inventory row exists
+  const inv = await db.get('inventory', product.id);
+  if (!inv) {
+    await db.put('inventory', {
+      productId: product.id,
+      quantity: product.openingStock,
+      lastUpdated: Date.now(),
+    });
+    if (product.openingStock > 0) {
+      await recordStockMovement({
+        id: genId(),
+        productId: product.id,
+        changeType: 'added',
+        quantity: product.openingStock,
+        date: todayStr(),
+        at: Date.now(),
+        sourceType: 'manual',
+        remainingAfter: product.openingStock,
+      });
+    }
   }
-  await tx.done;
+  await addEditHistory({
+    id: genId(),
+    entity: 'product',
+    entityId: product.id,
+    action: 'create',
+    summary: `Product saved: ${product.name}`,
+    at: Date.now(),
+  });
+}
+
+export async function updateProduct(product: Product): Promise<void> {
+  const db = await getDB();
+  await db.put('products', product);
+  await addEditHistory({
+    id: genId(),
+    entity: 'product',
+    entityId: product.id,
+    action: 'update',
+    summary: `Product updated: ${product.name}`,
+    at: Date.now(),
+  });
+}
+
+export async function deleteProduct(productId: string): Promise<void> {
+  const db = await getDB();
+  const p = await db.get('products', productId);
+  await db.delete('products', productId);
+  await db.delete('inventory', productId);
+  await addEditHistory({
+    id: genId(),
+    entity: 'product',
+    entityId: productId,
+    action: 'delete',
+    summary: `Product deleted: ${p?.name || productId}`,
+    at: Date.now(),
+  });
+}
+
+/** Legacy alias — old code called getCategories(). */
+export async function getCategories(): Promise<Product[]> {
+  return getProducts();
 }
 
 // ---------- Price sessions ----------
@@ -505,22 +539,28 @@ export async function getPriceSessionsForDateRange(start: string, end: string): 
   return all.filter(s => s.date >= start && s.date <= end);
 }
 
-/** Returns the latest price session for a category on a given date.
- *  Returns null if no session exists, OR if the latest session was marked
- *  unavailable (buy & sell both null). In that case this category is "අද නැත". */
-export async function getLatestPriceSessionForCategory(date: string, categoryId: string): Promise<PriceSession | null> {
+export async function getLatestPriceSessionForProduct(date: string, productId: string): Promise<PriceSession | null> {
   const sessions = await getPriceSessionsForDate(date);
   const filtered = sessions
-    .filter(s => s.categoryId === categoryId)
+    .filter(s => s.productId === productId || (s as any).categoryId === productId)
     .sort((a, b) => b.sessionIndex - a.sessionIndex);
   return filtered[0] || null;
 }
 
-/** Returns true if a category is marked "අද නැත" (unavailable) on the given date. */
-export async function isCategoryUnavailable(date: string, categoryId: string): Promise<boolean> {
-  const latest = await getLatestPriceSessionForCategory(date, categoryId);
-  if (!latest) return false; // no session yet — not unavailable, just unpriced
+/** Legacy alias. */
+export async function getLatestPriceSessionForCategory(date: string, categoryId: string): Promise<PriceSession | null> {
+  return getLatestPriceSessionForProduct(date, categoryId);
+}
+
+export async function isProductUnavailable(date: string, productId: string): Promise<boolean> {
+  const latest = await getLatestPriceSessionForProduct(date, productId);
+  if (!latest) return false;
   return latest.buyPrice == null && latest.sellPrice == null;
+}
+
+/** Legacy alias. */
+export async function isCategoryUnavailable(date: string, categoryId: string): Promise<boolean> {
+  return isProductUnavailable(date, categoryId);
 }
 
 export async function savePriceSession(session: PriceSession): Promise<void> {
@@ -552,15 +592,13 @@ export async function getSalesForDateRange(start: string, end: string): Promise<
 export async function saveSale(sale: Sale): Promise<void> {
   const db = await getDB();
   await db.put('sales', sale);
-  // Decrease inventory by sale quantity (never goes below 0 —
-  // caller should check inventory first via getInventoryForCategory)
-  await adjustInventory(sale.categoryId, -sale.quantity);
+  await adjustInventory(sale.productId, -sale.quantity);
   await addEditHistory({
     id: genId(),
     entity: 'sale',
     entityId: sale.id,
     action: 'create',
-    summary: `Sold ${sale.quantity} eggs on ${sale.date} (profit Rs.${sale.profit.toFixed(2)})`,
+    summary: `Sold ${sale.quantity} on ${sale.date} (profit LKR ${sale.profit.toFixed(2)})`,
     at: Date.now(),
   });
   await recalcDay(sale.date);
@@ -568,15 +606,12 @@ export async function saveSale(sale: Sale): Promise<void> {
 
 export async function updateSale(sale: Sale, summary: string): Promise<void> {
   const db = await getDB();
-  // Find existing sale to compute inventory delta
   const existing = await db.get('sales', sale.id);
   if (existing && existing.quantity !== sale.quantity) {
-    // Restore old quantity, then subtract new quantity
-    await adjustInventory(sale.categoryId, existing.quantity - sale.quantity);
-  } else if (existing && existing.categoryId !== sale.categoryId) {
-    // Category changed: restore to old category, deduct from new
-    await adjustInventory(existing.categoryId, existing.quantity);
-    await adjustInventory(sale.categoryId, -sale.quantity);
+    await adjustInventory(sale.productId, existing.quantity - sale.quantity);
+  } else if (existing && existing.productId !== sale.productId) {
+    await adjustInventory(existing.productId, existing.quantity);
+    await adjustInventory(sale.productId, -sale.quantity);
   }
   await db.put('sales', sale);
   await addEditHistory({
@@ -594,8 +629,7 @@ export async function deleteSale(saleId: string, summary: string): Promise<void>
   const db = await getDB();
   const sale = await db.get('sales', saleId);
   if (!sale) return;
-  // Restore inventory since the sale is being undone
-  await adjustInventory(sale.categoryId, sale.quantity);
+  await adjustInventory(sale.productId, sale.quantity);
   await db.delete('sales', saleId);
   await addEditHistory({
     id: genId(),
@@ -612,19 +646,34 @@ export async function deleteSale(saleId: string, summary: string): Promise<void>
 
 export async function getDayRecord(date: string): Promise<DayRecord | undefined> {
   const db = await getDB();
-  return db.get('dayRecords', date);
+  const rec = await db.get('dayRecords', date);
+  // Backfill totalItems from totalEggs for legacy records
+  if (rec && (rec as any).totalEggs != null && rec.totalItems == null) {
+    rec.totalItems = (rec as any).totalEggs;
+  }
+  return rec;
 }
 
 export async function getAllDayRecords(): Promise<DayRecord[]> {
   const db = await getDB();
   const all = await db.getAll('dayRecords');
-  return all.sort((a, b) => (a.date < b.date ? 1 : -1));
+  return all.map(r => {
+    if ((r as any).totalEggs != null && r.totalItems == null) {
+      r.totalItems = (r as any).totalEggs;
+    }
+    return r;
+  }).sort((a, b) => (a.date < b.date ? 1 : -1));
 }
 
 export async function getDayRecordsForRange(start: string, end: string): Promise<DayRecord[]> {
   const db = await getDB();
   const all = await db.getAll('dayRecords');
-  return all.filter(r => r.date >= start && r.date <= end).sort((a, b) => (a.date < b.date ? 1 : -1));
+  return all.map(r => {
+    if ((r as any).totalEggs != null && r.totalItems == null) {
+      r.totalItems = (r as any).totalEggs;
+    }
+    return r;
+  }).filter(r => r.date >= start && r.date <= end).sort((a, b) => (a.date < b.date ? 1 : -1));
 }
 
 export async function setDayClosed(date: string, closed: boolean): Promise<void> {
@@ -633,12 +682,13 @@ export async function setDayClosed(date: string, closed: boolean): Promise<void>
   const next: DayRecord = existing || {
     date,
     status: 'open',
-    totalEggs: 0,
+    totalItems: 0,
     totalBuy: 0,
     totalSell: 0,
     totalProfit: 0,
     sessionCount: 0,
     saleCount: 0,
+    totalDamageCost: 0,
     lastEditedAt: Date.now(),
   };
   next.status = closed ? 'closed' : 'open';
@@ -655,30 +705,30 @@ export async function setDayClosed(date: string, closed: boolean): Promise<void>
 }
 
 /**
- * Recalculate a day's aggregated summary from its sales & price sessions.
- * Sales for unavailable categories (those whose latest session has both
- * buy and sell null) are excluded from calculations — but this should be
- * enforced at sale-entry time so we keep this defensive only.
+ * Recalculate a day's aggregated summary from its sales, price sessions and damages.
  */
 export async function recalcDay(date: string): Promise<DayRecord> {
   const db = await getDB();
   const sales = await getSalesForDate(date);
   const sessions = await getPriceSessionsForDate(date);
-  const totalEggs = sales.reduce((a, s) => a + s.quantity, 0);
+  const damages = await getDamagesForDate(date);
+  const totalItems = sales.reduce((a, s) => a + s.quantity, 0);
   const totalBuy = sales.reduce((a, s) => a + s.buyPrice * s.quantity, 0);
   const totalSell = sales.reduce((a, s) => a + s.sellPrice * s.quantity, 0);
   const totalProfit = sales.reduce((a, s) => a + s.profit, 0);
+  const totalDamageCost = damages.reduce((a, d) => a + d.totalCost, 0);
 
   const existing = await db.get('dayRecords', date);
   const next: DayRecord = {
     date,
     status: existing?.status === 'closed' ? 'closed' : 'open',
-    totalEggs,
+    totalItems,
     totalBuy,
     totalSell,
     totalProfit,
     sessionCount: sessions.length,
     saleCount: sales.length,
+    totalDamageCost,
     lastEditedAt: Date.now(),
     notes: existing?.notes,
   };
@@ -709,7 +759,6 @@ export async function getPaidCredits(): Promise<CreditRecord[]> {
 export async function saveCredit(credit: CreditRecord): Promise<void> {
   const db = await getDB();
   await db.put('credits', credit);
-  // Record the initial payment (if any) as a CreditPayment entry
   if (credit.paidAmount > 0) {
     const payment: CreditPayment = {
       id: genId(),
@@ -726,14 +775,11 @@ export async function saveCredit(credit: CreditRecord): Promise<void> {
     entity: 'credit',
     entityId: credit.id,
     action: 'create',
-    summary: `Credit added: ${credit.customerName} — ${credit.quantity} eggs, remaining Rs.${credit.remaining.toFixed(2)}`,
+    summary: `Credit added: ${credit.customerName} — remaining LKR ${credit.remaining.toFixed(2)}`,
     at: Date.now(),
   });
 }
 
-/** Record a partial payment against a credit. Updates the credit's
- *  paidAmount, remaining, and status. If remaining hits 0, status becomes
- *  'paid' (moves to paid list). Never deletes the credit record. */
 export async function recordCreditPayment(
   creditId: string,
   amount: number,
@@ -743,7 +789,7 @@ export async function recordCreditPayment(
   if (!c) throw new Error('Credit record not found');
   if (amount <= 0) throw new Error('Payment amount must be positive');
   if (amount > c.remaining + 0.01) {
-    throw new Error(`Payment exceeds remaining balance (Rs.${c.remaining.toFixed(2)})`);
+    throw new Error(`Payment exceeds remaining balance (LKR ${c.remaining.toFixed(2)})`);
   }
   const movedToPaid = c.remaining - amount <= 0.01;
   c.paidAmount += amount;
@@ -754,13 +800,12 @@ export async function recordCreditPayment(
   }
   await db.put('credits', c);
 
-  const today = todayStr();
   const payment: CreditPayment = {
     id: genId(),
-    creditId: creditId,
+    creditId,
     customerName: c.customerName,
     amount,
-    paymentDate: today,
+    paymentDate: todayStr(),
     paidAt: Date.now(),
   };
   await db.put('creditPayments', payment);
@@ -770,14 +815,13 @@ export async function recordCreditPayment(
     entity: 'credit',
     entityId: creditId,
     action: 'mark-paid',
-    summary: `Credit payment: ${c.customerName} — Rs.${amount.toFixed(2)}${movedToPaid ? ' (fully paid)' : ''}`,
+    summary: `Credit payment: ${c.customerName} — LKR ${amount.toFixed(2)}${movedToPaid ? ' (fully paid)' : ''}`,
     at: Date.now(),
   });
 
   return { credit: c, payment, movedToPaid };
 }
 
-/** Mark a credit as fully paid in one go (legacy convenience). */
 export async function markCreditPaid(creditId: string): Promise<void> {
   const db = await getDB();
   const c = await db.get('credits', creditId);
@@ -794,19 +838,17 @@ export async function markCreditPaid(creditId: string): Promise<void> {
     entity: 'credit',
     entityId: creditId,
     action: 'mark-paid',
-    summary: `Credit marked paid: ${c.customerName} — Rs.${c.remaining.toFixed(2)}`,
+    summary: `Credit marked paid: ${c.customerName}`,
     at: Date.now(),
   });
 }
 
-/** Get all payment records for a credit (chronological). */
 export async function getCreditPayments(creditId: string): Promise<CreditPayment[]> {
   const db = await getDB();
   return (await db.getAllFromIndex('creditPayments', 'by-credit', creditId))
     .sort((a, b) => b.paidAt - a.paidAt);
 }
 
-/** Get all credit payment records (across all credits). */
 export async function getAllCreditPayments(): Promise<CreditPayment[]> {
   const db = await getDB();
   return (await db.getAll('creditPayments')).sort((a, b) => b.paidAt - a.paidAt);
@@ -827,46 +869,49 @@ export async function getEditHistory(limit = 100): Promise<EditHistoryEntry[]> {
 
 // ---------- Inventory ----------
 
-/** Get the current stock level for a category (0 if never set). */
-export async function getInventoryForCategory(categoryId: string): Promise<number> {
+export async function getInventoryForProduct(productId: string): Promise<number> {
   const db = await getDB();
-  const inv = await db.get('inventory', categoryId);
+  const inv = await db.get('inventory', productId);
   return inv?.quantity ?? 0;
 }
 
-/** Get all inventory records, mapped by categoryId. */
+/** Legacy alias. */
+export async function getInventoryForCategory(categoryId: string): Promise<number> {
+  return getInventoryForProduct(categoryId);
+}
+
 export async function getAllInventory(): Promise<Record<string, number>> {
   const db = await getDB();
   const all = await db.getAll('inventory');
   const map: Record<string, number> = {};
-  for (const inv of all) map[inv.categoryId] = inv.quantity;
+  for (const inv of all) map[inv.productId] = inv.quantity;
   return map;
 }
 
-/** Atomically adjust inventory by delta (positive or negative).
- *  Clamps to 0 so stock never goes negative. Also records a stock
- *  movement for audit purposes. */
-export async function adjustInventory(categoryId: string, delta: number): Promise<number> {
+export async function adjustInventory(productId: string, delta: number, sourceType: 'supplier' | 'sale' | 'damage' | 'manual' = 'sale'): Promise<number> {
   const db = await getDB();
-  const existing = await db.get('inventory', categoryId);
+  const existing = await db.get('inventory', productId);
   const current = existing?.quantity ?? 0;
   const next = Math.max(0, current + delta);
   const updated: Inventory = {
-    categoryId,
+    productId,
     quantity: next,
     lastUpdated: Date.now(),
   };
   await db.put('inventory', updated);
-  // Record stock movement (only if there's an actual change)
   if (delta !== 0) {
+    const changeType: StockMovement['changeType'] =
+      delta > 0 ? (sourceType === 'damage' ? 'returned' : 'added') :
+      sourceType === 'damage' ? 'damaged' :
+      sourceType === 'supplier' ? 'returned' : 'sold';
     const movement: StockMovement = {
       id: genId(),
-      categoryId,
-      changeType: delta > 0 ? 'added' : 'sold',
+      productId,
+      changeType,
       quantity: Math.abs(delta),
       date: todayStr(),
       at: Date.now(),
-      sourceType: delta > 0 ? 'supplier' : 'sale',
+      sourceType,
       remainingAfter: next,
     };
     await recordStockMovement(movement);
@@ -874,11 +919,10 @@ export async function adjustInventory(categoryId: string, delta: number): Promis
   return next;
 }
 
-/** Direct set of inventory (used by import / restore). */
-export async function setInventory(categoryId: string, quantity: number): Promise<void> {
+export async function setInventory(productId: string, quantity: number): Promise<void> {
   const db = await getDB();
   await db.put('inventory', {
-    categoryId,
+    productId,
     quantity: Math.max(0, quantity),
     lastUpdated: Date.now(),
   });
@@ -903,10 +947,10 @@ export async function saveExpense(expense: Expense): Promise<void> {
   await db.put('expenses', expense);
   await addEditHistory({
     id: genId(),
-    entity: 'inventory',
+    entity: 'expense',
     entityId: expense.id,
     action: 'create',
-    summary: `Expense added: ${expense.category} — Rs.${expense.amount.toFixed(2)}`,
+    summary: `Expense added: ${expense.category} — LKR ${expense.amount.toFixed(2)}`,
     at: Date.now(),
   });
 }
@@ -916,7 +960,7 @@ export async function deleteExpense(expenseId: string): Promise<void> {
   await db.delete('expenses', expenseId);
   await addEditHistory({
     id: genId(),
-    entity: 'inventory',
+    entity: 'expense',
     entityId: expenseId,
     action: 'delete',
     summary: `Expense deleted`,
@@ -928,8 +972,9 @@ export async function deleteExpense(expenseId: string): Promise<void> {
 
 export async function getDamagesForDate(date: string): Promise<DamageRecord[]> {
   const db = await getDB();
-  return (await db.getAllFromIndex('damages', 'by-date', date))
-    .sort((a, b) => b.createdAt - a.createdAt);
+  // try by-date index, fall back to scanning for legacy 'categoryId' index
+  const fromIndex = await db.getAllFromIndex('damages', 'by-date', date);
+  return fromIndex.sort((a, b) => b.createdAt - a.createdAt);
 }
 
 export async function getDamagesForDateRange(start: string, end: string): Promise<DamageRecord[]> {
@@ -944,37 +989,36 @@ export async function getAllDamages(): Promise<DamageRecord[]> {
   return all.sort((a, b) => (a.date < b.date ? 1 : -1));
 }
 
-/** Save a damage record. Auto-decreases inventory by quantity. */
 export async function saveDamage(damage: DamageRecord): Promise<void> {
   const db = await getDB();
   await db.put('damages', damage);
-  // Auto-decrease inventory
-  await adjustInventory(damage.categoryId, -damage.quantity);
+  await adjustInventory(damage.productId, -damage.quantity, 'damage');
   await addEditHistory({
     id: genId(),
-    entity: 'inventory',
+    entity: 'damage',
     entityId: damage.id,
     action: 'create',
-    summary: `Damaged eggs: ${damage.quantity} — Rs.${damage.totalCost.toFixed(2)}`,
+    summary: `Damaged stock: ${damage.quantity} — LKR ${damage.totalCost.toFixed(2)}`,
     at: Date.now(),
   });
+  await recalcDay(damage.date);
 }
 
 export async function deleteDamage(damageId: string): Promise<void> {
   const db = await getDB();
   const d = await db.get('damages', damageId);
   if (!d) return;
-  // Restore inventory
-  await adjustInventory(d.categoryId, d.quantity);
+  await adjustInventory(d.productId, d.quantity, 'manual');
   await db.delete('damages', damageId);
   await addEditHistory({
     id: genId(),
-    entity: 'inventory',
+    entity: 'damage',
     entityId: damageId,
     action: 'delete',
     summary: `Damage record deleted`,
     at: Date.now(),
   });
+  await recalcDay(d.date);
 }
 
 // ---------- Stock Movements ----------
@@ -985,10 +1029,15 @@ export async function getAllStockMovements(): Promise<StockMovement[]> {
   return all.sort((a, b) => b.at - a.at);
 }
 
-export async function getStockMovementsForCategory(categoryId: string): Promise<StockMovement[]> {
+export async function getStockMovementsForProduct(productId: string): Promise<StockMovement[]> {
   const db = await getDB();
-  return (await db.getAllFromIndex('stockMovements', 'by-category', categoryId))
+  return (await db.getAllFromIndex('stockMovements', 'by-product', productId))
     .sort((a, b) => b.at - a.at);
+}
+
+/** Legacy alias. */
+export async function getStockMovementsForCategory(categoryId: string): Promise<StockMovement[]> {
+  return getStockMovementsForProduct(categoryId);
 }
 
 async function recordStockMovement(movement: StockMovement): Promise<void> {
@@ -1024,17 +1073,14 @@ export async function saveSupplier(supplier: Supplier): Promise<void> {
 
 export async function deleteSupplier(supplierId: string): Promise<void> {
   const db = await getDB();
-  // Cascade: delete all purchases and payments for this supplier.
-  // Also reverse inventory for any active purchases that increased stock.
   const purchases = await db.getAllFromIndex('supplierPurchases', 'by-supplier', supplierId);
   const payments = await db.getAllFromIndex('supplierPayments', 'by-supplier', supplierId);
   const tx = db.transaction(['suppliers', 'supplierPurchases', 'supplierPayments', 'inventory'], 'readwrite');
-  // Reverse inventory for each purchase
   for (const p of purchases) {
-    const inv = await tx.objectStore('inventory').get(p.categoryId);
+    const inv = await tx.objectStore('inventory').get(p.productId);
     const current = inv?.quantity ?? 0;
     await tx.objectStore('inventory').put({
-      categoryId: p.categoryId,
+      productId: p.productId,
       quantity: Math.max(0, current - p.quantity),
       lastUpdated: Date.now(),
     });
@@ -1048,7 +1094,7 @@ export async function deleteSupplier(supplierId: string): Promise<void> {
     entity: 'supplier',
     entityId: supplierId,
     action: 'delete',
-    summary: `Supplier ${supplierId} deleted (with ${purchases.length} purchases, ${payments.length} payments)`,
+    summary: `Supplier ${supplierId} deleted (${purchases.length} purchases, ${payments.length} payments)`,
     at: Date.now(),
   });
 }
@@ -1078,7 +1124,6 @@ export async function getPurchase(id: string): Promise<SupplierPurchase | undefi
   return db.get('supplierPurchases', id);
 }
 
-/** Get all supplier purchases across all suppliers in a date range (for PDF reports). */
 export async function getAllSupplierPurchasesForDateRange(start: string, end: string): Promise<SupplierPurchase[]> {
   const db = await getDB();
   const all = await db.getAll('supplierPurchases');
@@ -1087,14 +1132,11 @@ export async function getAllSupplierPurchasesForDateRange(start: string, end: st
     .sort((a, b) => b.purchaseAt - a.purchaseAt);
 }
 
-/** Get all supplier purchases grouped by purchaseGroupId. Returns a map of
- *  groupId -> array of purchases. Purchases without a groupId are each in
- *  their own group (keyed by their own id) for backward compatibility. */
 export async function getPurchasesGroupedByGroup(supplierId: string): Promise<{ groupId: string; date: string; at: number; items: SupplierPurchase[]; totalCost: number; totalEggs: number; totalPaid: number; totalRemaining: number; allPaid: boolean }[]> {
   const all = await getPurchasesForSupplier(supplierId);
   const groupMap = new Map<string, SupplierPurchase[]>();
   for (const p of all) {
-    const key = p.purchaseGroupId || p.id; // legacy single-line purchases use their own id
+    const key = p.purchaseGroupId || p.id;
     if (!groupMap.has(key)) groupMap.set(key, []);
     groupMap.get(key)!.push(p);
   }
@@ -1107,32 +1149,17 @@ export async function getPurchasesGroupedByGroup(supplierId: string): Promise<{ 
     const totalPaid = items.reduce((a, p) => a + p.paidAmount, 0);
     const totalRemaining = items.reduce((a, p) => a + p.remaining, 0);
     const allPaid = items.every(p => p.status === 'paid');
-    groups.push({
-      groupId,
-      date: first.purchaseDate,
-      at: first.purchaseAt,
-      items,
-      totalCost,
-      totalEggs,
-      totalPaid,
-      totalRemaining,
-      allPaid,
-    });
+    groups.push({ groupId, date: first.purchaseDate, at: first.purchaseAt, items, totalCost, totalEggs, totalPaid, totalRemaining, allPaid });
   }
-  // Sort groups by date descending (most recent first)
   groups.sort((a, b) => b.at - a.at);
   return groups;
 }
 
-/** Save a new supplier purchase. Auto-increases inventory by quantity.
- *  paidNow (if any) creates an initial payment record.
- *  If paidNow >= totalCost, the purchase is marked 'paid' immediately. */
 export async function saveSupplierPurchase(
   purchase: SupplierPurchase,
   paidNow: number = 0,
 ): Promise<SupplierPurchase> {
   const db = await getDB();
-  // Compute initial paidAmount/remaining/status
   const paid = Math.min(paidNow, purchase.totalCost);
   const remaining = Math.max(0, purchase.totalCost - paid);
   const status: 'active' | 'paid' = remaining === 0 && purchase.totalCost > 0 ? 'paid' : 'active';
@@ -1144,9 +1171,7 @@ export async function saveSupplierPurchase(
     paidAt: status === 'paid' ? Date.now() : undefined,
   };
   await db.put('supplierPurchases', finalPurchase);
-  // Auto-increase inventory
-  await adjustInventory(purchase.categoryId, purchase.quantity);
-  // Create initial payment if any
+  await adjustInventory(purchase.productId, purchase.quantity, 'supplier');
   if (paid > 0) {
     const payment: SupplierPayment = {
       id: genId(),
@@ -1163,20 +1188,17 @@ export async function saveSupplierPurchase(
     entity: 'supplierPurchase',
     entityId: purchase.id,
     action: 'create',
-    summary: `Supplier purchase: ${purchase.quantity} eggs, Rs.${purchase.totalCost.toFixed(2)} (paid Rs.${paid.toFixed(2)})`,
+    summary: `Supplier purchase: ${purchase.quantity} units, LKR ${purchase.totalCost.toFixed(2)} (paid LKR ${paid.toFixed(2)})`,
     at: Date.now(),
   });
   return finalPurchase;
 }
 
-/** Delete a supplier purchase. Reverses inventory and deletes related payments. */
 export async function deleteSupplierPurchase(purchaseId: string): Promise<void> {
   const db = await getDB();
   const p = await db.get('supplierPurchases', purchaseId);
   if (!p) return;
-  // Reverse inventory
-  await adjustInventory(p.categoryId, -p.quantity);
-  // Delete related payments
+  await adjustInventory(p.productId, -p.quantity, 'manual');
   const payments = await db.getAllFromIndex('supplierPayments', 'by-purchase', purchaseId);
   const tx = db.transaction(['supplierPurchases', 'supplierPayments'], 'readwrite');
   await tx.objectStore('supplierPurchases').delete(purchaseId);
@@ -1187,7 +1209,7 @@ export async function deleteSupplierPurchase(purchaseId: string): Promise<void> 
     entity: 'supplierPurchase',
     entityId: purchaseId,
     action: 'delete',
-    summary: `Supplier purchase deleted: ${p.quantity} eggs`,
+    summary: `Supplier purchase deleted: ${p.quantity} units`,
     at: Date.now(),
   });
 }
@@ -1206,9 +1228,6 @@ export async function getPaymentsForPurchase(purchaseId: string): Promise<Suppli
     .sort((a, b) => b.paidAt - a.paidAt);
 }
 
-/** Record a new payment for a supplier purchase. Updates the purchase's
- *  paidAmount, remaining, and status. If remaining hits 0, status becomes
- *  'paid' (moves to paid history). Never deletes the purchase record. */
 export async function saveSupplierPayment(
   payment: SupplierPayment,
 ): Promise<{ payment: SupplierPayment; purchase: SupplierPurchase }> {
@@ -1217,9 +1236,8 @@ export async function saveSupplierPayment(
   if (!purchase) throw new Error('Purchase not found');
   if (payment.amount <= 0) throw new Error('Payment amount must be positive');
   if (payment.amount > purchase.remaining + 0.01) {
-    throw new Error(`Payment exceeds remaining balance (Rs.${purchase.remaining.toFixed(2)})`);
+    throw new Error(`Payment exceeds remaining balance (LKR ${purchase.remaining.toFixed(2)})`);
   }
-  // Update purchase
   purchase.paidAmount += payment.amount;
   purchase.remaining = Math.max(0, purchase.totalCost - purchase.paidAmount);
   if (purchase.remaining === 0) {
@@ -1233,16 +1251,16 @@ export async function saveSupplierPayment(
     entity: 'supplierPayment',
     entityId: payment.id,
     action: 'create',
-    summary: `Payment Rs.${payment.amount.toFixed(2)} for purchase ${payment.purchaseId}`,
+    summary: `Payment LKR ${payment.amount.toFixed(2)} for purchase ${payment.purchaseId}`,
     at: Date.now(),
   });
   return { payment, purchase };
 }
 
-/** Supplier summary aggregations. */
 export type SupplierSummary = {
   supplierId: string;
-  totalEggsPurchased: number;
+  totalUnitsPurchased: number;
+  totalEggsPurchased: number; // legacy alias kept
   totalPurchaseAmount: number;
   totalPaid: number;
   remaining: number;
@@ -1253,7 +1271,7 @@ export type SupplierSummary = {
 
 export async function getSupplierSummary(supplierId: string): Promise<SupplierSummary> {
   const purchases = await getPurchasesForSupplier(supplierId);
-  const totalEggsPurchased = purchases.reduce((a, p) => a + p.quantity, 0);
+  const totalUnitsPurchased = purchases.reduce((a, p) => a + p.quantity, 0);
   const totalPurchaseAmount = purchases.reduce((a, p) => a + p.totalCost, 0);
   const totalPaid = purchases.reduce((a, p) => a + p.paidAmount, 0);
   const remaining = purchases.reduce((a, p) => a + p.remaining, 0);
@@ -1261,7 +1279,8 @@ export async function getSupplierSummary(supplierId: string): Promise<SupplierSu
   const paidCount = purchases.filter(p => p.status === 'paid').length;
   return {
     supplierId,
-    totalEggsPurchased,
+    totalUnitsPurchased,
+    totalEggsPurchased: totalUnitsPurchased,
     totalPurchaseAmount,
     totalPaid,
     remaining,
@@ -1306,19 +1325,10 @@ export function addDays(dateStr: string, delta: number): string {
   return toDateStr(d);
 }
 
-/**
- * Detect missed days: any date between installDate+1 and yesterday that has
- * no dayRecord and is not flagged closed.
- *
- * Returns array of missing date strings (descending), excluding today.
- * Never returns dates before installDate (the install day itself is excluded
- * since we start checking from installDate+1).
- */
 export async function detectMissedDays(): Promise<string[]> {
   const settings = await getSettings();
   const installDate = settings.installDate || todayStr();
   const today = todayStr();
-  // Nothing to check if today is the install day
   if (today <= installDate) return [];
 
   const db = await getDB();
@@ -1326,7 +1336,6 @@ export async function detectMissedDays(): Promise<string[]> {
   const seen = new Set(all.map(r => r.date));
   const missing: string[] = [];
 
-  // Walk backwards from yesterday down to (but not including) installDate.
   let cursor = addDays(today, -1);
   while (cursor > installDate) {
     if (!seen.has(cursor)) missing.push(cursor);
@@ -1339,9 +1348,9 @@ export async function detectMissedDays(): Promise<string[]> {
 
 export async function exportBackup(): Promise<string> {
   const db = await getDB();
-  const [settings, categories, priceSessions, sales, dayRecords, credits, creditPayments, suppliers, supplierPurchases, supplierPayments, inventory, expenses, damages, stockMovements, editHistory, metaKeys] = await Promise.all([
+  const [settings, products, priceSessions, sales, dayRecords, credits, creditPayments, suppliers, supplierPurchases, supplierPayments, inventory, expenses, damages, stockMovements, editHistory, metaKeys] = await Promise.all([
     db.get('settings', 'app'),
-    db.getAll('categories'),
+    db.getAll('products'),
     db.getAll('priceSessions'),
     db.getAll('sales'),
     db.getAll('dayRecords'),
@@ -1362,10 +1371,10 @@ export async function exportBackup(): Promise<string> {
     meta[k as string] = await db.get('meta', k);
   }
   const payload = {
-    app: 'eggshop',
-    version: 6,
+    app: 'shop-manager',
+    version: 7,
     exportedAt: new Date().toISOString(),
-    settings, categories, priceSessions, sales, dayRecords, credits, creditPayments,
+    settings, products, priceSessions, sales, dayRecords, credits, creditPayments,
     suppliers, supplierPurchases, supplierPayments, inventory,
     expenses, damages, stockMovements,
     editHistory, meta,
@@ -1377,17 +1386,16 @@ export async function exportBackup(): Promise<string> {
 export async function importBackup(jsonStr: string): Promise<void> {
   const db = await getDB();
   const payload = JSON.parse(jsonStr);
-  // Accept all legacy app markers
-  if (payload.app !== 'eggshop' && payload.app !== 'biththara-kade') {
+  if (payload.app !== 'shop-manager' && payload.app !== 'eggshop' && payload.app !== 'biththara-kade') {
     throw new Error('Invalid backup file');
   }
   const tx = db.transaction(
-    ['settings', 'categories', 'priceSessions', 'sales', 'dayRecords', 'credits', 'creditPayments', 'suppliers', 'supplierPurchases', 'supplierPayments', 'inventory', 'expenses', 'damages', 'stockMovements', 'editHistory', 'meta'],
+    ['settings', 'products', 'priceSessions', 'sales', 'dayRecords', 'credits', 'creditPayments', 'suppliers', 'supplierPurchases', 'supplierPayments', 'inventory', 'expenses', 'damages', 'stockMovements', 'editHistory', 'meta'],
     'readwrite',
   );
   await Promise.all([
     tx.objectStore('settings').clear(),
-    tx.objectStore('categories').clear(),
+    tx.objectStore('products').clear(),
     tx.objectStore('priceSessions').clear(),
     tx.objectStore('sales').clear(),
     tx.objectStore('dayRecords').clear(),
@@ -1403,39 +1411,130 @@ export async function importBackup(jsonStr: string): Promise<void> {
     tx.objectStore('editHistory').clear(),
     tx.objectStore('meta').clear(),
   ]);
+  // Migrate legacy 'categories' field to 'products' if present
+  const products = payload.products || payload.categories || [];
   if (payload.settings) await tx.objectStore('settings').put(payload.settings, 'app');
-  for (const c of payload.categories || []) await tx.objectStore('categories').put(c);
-  for (const p of payload.priceSessions || []) await tx.objectStore('priceSessions').put(p);
-  for (const s of payload.sales || []) await tx.objectStore('sales').put(s);
-  for (const d of payload.dayRecords || []) await tx.objectStore('dayRecords').put(d);
-  for (const c of payload.credits || []) await tx.objectStore('credits').put(c);
+  for (const c of products) {
+    // Backfill new fields if missing
+    if (c.category == null) c.category = 'General';
+    if (c.unit == null) c.unit = 'pcs';
+    if (c.openingStock == null) c.openingStock = 0;
+    if (c.purchasePrice == null) c.purchasePrice = 0;
+    if (c.sellingPrice == null) c.sellingPrice = 0;
+    if (c.reorderThreshold == null) c.reorderThreshold = 10;
+    if (c.createdAt == null) c.createdAt = Date.now();
+    await tx.objectStore('products').put(c);
+  }
+  for (const p of payload.priceSessions || []) {
+    // Migrate categoryId → productId
+    if (p.productId == null && p.categoryId != null) p.productId = p.categoryId;
+    await tx.objectStore('priceSessions').put(p);
+  }
+  for (const s of payload.sales || []) {
+    if (s.productId == null && s.categoryId != null) s.productId = s.categoryId;
+    await tx.objectStore('sales').put(s);
+  }
+  for (const d of payload.dayRecords || []) {
+    if (d.totalItems == null && d.totalEggs != null) d.totalItems = d.totalEggs;
+    if (d.totalDamageCost == null) d.totalDamageCost = 0;
+    await tx.objectStore('dayRecords').put(d);
+  }
+  for (const c of payload.credits || []) {
+    // Backfill items array for legacy single-line credits
+    if (!c.items || c.items.length === 0) {
+      c.items = [{
+        productId: c.categoryId || c.productId || '',
+        name: '',
+        quantity: c.quantity || 0,
+        unitPrice: c.sellPrice || 0,
+      }];
+    }
+    await tx.objectStore('credits').put(c);
+  }
   for (const c of payload.creditPayments || []) await tx.objectStore('creditPayments').put(c);
   for (const s of payload.suppliers || []) await tx.objectStore('suppliers').put(s);
-  for (const p of payload.supplierPurchases || []) await tx.objectStore('supplierPurchases').put(p);
+  for (const p of payload.supplierPurchases || []) {
+    if (p.productId == null && p.categoryId != null) p.productId = p.categoryId;
+    await tx.objectStore('supplierPurchases').put(p);
+  }
   for (const pm of payload.supplierPayments || []) await tx.objectStore('supplierPayments').put(pm);
-  for (const i of payload.inventory || []) await tx.objectStore('inventory').put(i);
+  for (const i of payload.inventory || []) {
+    if (i.productId == null && i.categoryId != null) i.productId = i.categoryId;
+    await tx.objectStore('inventory').put(i);
+  }
   for (const e of payload.expenses || []) await tx.objectStore('expenses').put(e);
-  for (const d of payload.damages || []) await tx.objectStore('damages').put(d);
-  for (const sm of payload.stockMovements || []) await tx.objectStore('stockMovements').put(sm);
+  for (const d of payload.damages || []) {
+    if (d.productId == null && d.categoryId != null) d.productId = d.categoryId;
+    await tx.objectStore('damages').put(d);
+  }
+  for (const sm of payload.stockMovements || []) {
+    if (sm.productId == null && sm.categoryId != null) sm.productId = sm.categoryId;
+    await tx.objectStore('stockMovements').put(sm);
+  }
   for (const e of payload.editHistory || []) await tx.objectStore('editHistory').put(e);
   for (const [k, v] of Object.entries(payload.meta || {})) await tx.objectStore('meta').put(v, k);
   await tx.done;
 }
 
+/**
+ * Auto-backup: store a snapshot in the 'backups' store. Keep only the latest 5.
+ * Returns the id of the new backup.
+ */
+export async function saveAutoBackup(): Promise<string> {
+  const db = await getDB();
+  const json = await exportBackup();
+  const id = genId();
+  const at = Date.now();
+  await db.put('backups', { id, at, json });
+  // Prune to latest 5
+  const all = await db.getAll('backups');
+  if (all.length > 5) {
+    const sorted = all.sort((a, b) => a.at - b.at);
+    const toDelete = sorted.slice(0, all.length - 5);
+    const tx = db.transaction('backups', 'readwrite');
+    for (const b of toDelete) await tx.store.delete(b.id);
+    await tx.done;
+  }
+  return id;
+}
+
+export async function listAutoBackups(): Promise<{ id: string; at: number }[]> {
+  const db = await getDB();
+  const all = await db.getAll('backups');
+  return all.sort((a, b) => b.at - a.at).map(b => ({ id: b.id, at: b.at }));
+}
+
+export async function restoreAutoBackup(id: string): Promise<void> {
+  const db = await getDB();
+  const b = await db.get('backups', id);
+  if (!b) throw new Error('Backup not found');
+  await importBackup(b.json);
+}
+
+export async function deleteAutoBackup(id: string): Promise<void> {
+  const db = await getDB();
+  await db.delete('backups', id);
+}
+
 // ---------- Aggregations ----------
 
 export type MonthSummary = {
-  month: string; // YYYY-MM
-  totalEggs: number;
+  month: string;
+  totalItems: number;
+  totalEggs: number; // legacy alias
   totalBuy: number;
   totalSell: number;
   totalProfit: number;
+  totalDamageCost: number;
+  netProfit: number;
+  totalExpenses: number;
   openDays: number;
   closedDays: number;
   averageDailyProfit: number;
   bestDay: { date: string; profit: number } | null;
   worstDay: { date: string; profit: number } | null;
-  perCategory: { categoryId: string; totalEggs: number; totalProfit: number }[];
+  perProduct: { productId: string; totalItems: number; totalProfit: number }[];
+  perCategory: { productId: string; totalItems: number; totalProfit: number }[]; // legacy alias kept
 };
 
 export async function getMonthSummary(month: string): Promise<MonthSummary> {
@@ -1443,18 +1542,21 @@ export async function getMonthSummary(month: string): Promise<MonthSummary> {
   const end = `${month}-31`;
   const days = await getDayRecordsForRange(start, end);
   const sales = await getSalesForDateRange(start, end);
-  const cats = await getCategories();
+  const expenses = await getExpensesForDateRange(start, end);
+  const products = await getProducts();
+  const damages = await getDamagesForDateRange(start, end);
 
-  let totalEggs = 0, totalBuy = 0, totalSell = 0, totalProfit = 0;
+  let totalItems = 0, totalBuy = 0, totalSell = 0, totalProfit = 0, totalDamageCost = 0;
   let openDays = 0, closedDays = 0;
   let bestDay: { date: string; profit: number } | null = null;
   let worstDay: { date: string; profit: number } | null = null;
 
   for (const d of days) {
-    totalEggs += d.totalEggs;
+    totalItems += d.totalItems;
     totalBuy += d.totalBuy;
     totalSell += d.totalSell;
     totalProfit += d.totalProfit;
+    totalDamageCost += d.totalDamageCost || 0;
     if (d.status === 'closed') closedDays++;
     else openDays++;
     if (d.status !== 'closed' && d.saleCount > 0) {
@@ -1463,12 +1565,15 @@ export async function getMonthSummary(month: string): Promise<MonthSummary> {
     }
   }
 
-  const perCategory = cats.map(c => {
-    const cs = sales.filter(s => s.categoryId === c.id);
+  const totalExpenses = expenses.reduce((a, e) => a + e.amount, 0);
+  const netProfit = totalProfit - totalExpenses - totalDamageCost;
+
+  const perProduct = products.map(p => {
+    const ps = sales.filter(s => s.productId === p.id);
     return {
-      categoryId: c.id,
-      totalEggs: cs.reduce((a, s) => a + s.quantity, 0),
-      totalProfit: cs.reduce((a, s) => a + s.profit, 0),
+      productId: p.id,
+      totalItems: ps.reduce((a, s) => a + s.quantity, 0),
+      totalProfit: ps.reduce((a, s) => a + s.profit, 0),
     };
   });
 
@@ -1476,7 +1581,166 @@ export async function getMonthSummary(month: string): Promise<MonthSummary> {
   const averageDailyProfit = profitDays.length ? totalProfit / profitDays.length : 0;
 
   return {
-    month, totalEggs, totalBuy, totalSell, totalProfit,
-    openDays, closedDays, averageDailyProfit, bestDay, worstDay, perCategory,
+    month,
+    totalItems,
+    totalEggs: totalItems,
+    totalBuy,
+    totalSell,
+    totalProfit,
+    totalDamageCost,
+    netProfit,
+    totalExpenses,
+    openDays,
+    closedDays,
+    averageDailyProfit,
+    bestDay,
+    worstDay,
+    perProduct,
+    perCategory: perProduct,
+  };
+}
+
+// ---------- Dashboard aggregations (NEW v3) ----------
+
+export type DashboardStats = {
+  // Cash & profit
+  cashAvailable: number;       // total sell - total expenses (NOT minus supplier dues)
+  grossProfit: number;         // total sell - total buy (= total profit across all sales)
+  netProfit: number;           // grossProfit - expenses - damage cost
+  // Dues
+  supplierDue: number;
+  customerDue: number;
+  // Today
+  todaySales: number;          // total sell today
+  todayProfit: number;
+  todayItems: number;
+  // Month
+  monthSales: number;
+  monthProfit: number;
+  monthExpenses: number;
+  monthDamageCost: number;
+  monthNetProfit: number;
+  // Yesterday & last month for comparison
+  yesterdayProfit: number;
+  lastMonthProfit: number;
+  // Stock alerts
+  lowStockCount: number;
+  outOfStockCount: number;
+  lowStockProducts: { id: string; name: string; qty: number; threshold: number }[];
+  // Top selling product (this month)
+  topProduct: { id: string; name: string; qty: number; profit: number } | null;
+};
+
+export async function getDashboardStats(): Promise<DashboardStats> {
+  const today = todayStr();
+  const thisMonth = today.slice(0, 7);
+  const thisMonthStart = `${thisMonth}-01`;
+  const thisMonthEnd = `${thisMonth}-31`;
+  const yesterday = addDays(today, -1);
+
+  // Last month range
+  const now = new Date();
+  const lastMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const lastMonth = `${lastMonthDate.getFullYear()}-${String(lastMonthDate.getMonth() + 1).padStart(2, '0')}`;
+  const lastMonthStart = `${lastMonth}-01`;
+  const lastMonthEnd = `${lastMonth}-31`;
+
+  const [
+    todaySalesArr, monthSalesArr, lastMonthSalesArr, yesterdaySalesArr,
+    monthExpensesArr, monthDamagesArr,
+    allCredits, allSuppliers, allInventory, allProducts,
+  ] = await Promise.all([
+    getSalesForDate(today),
+    getSalesForDateRange(thisMonthStart, thisMonthEnd),
+    getSalesForDateRange(lastMonthStart, lastMonthEnd),
+    getSalesForDate(yesterday),
+    getExpensesForDateRange(thisMonthStart, thisMonthEnd),
+    getDamagesForDateRange(thisMonthStart, thisMonthEnd),
+    getActiveCredits(),
+    getAllSuppliers(),
+    getAllInventory(),
+    getProducts(),
+  ]);
+
+  const totalSellAll = monthSalesArr.reduce((a, s) => a + s.sellPrice * s.quantity, 0);
+  const totalBuyAll = monthSalesArr.reduce((a, s) => a + s.buyPrice * s.quantity, 0);
+  const grossProfit = monthSalesArr.reduce((a, s) => a + s.profit, 0);
+  const monthExpenses = monthExpensesArr.reduce((a, e) => a + e.amount, 0);
+  const monthDamageCost = monthDamagesArr.reduce((a, d) => a + d.totalCost, 0);
+  const netProfit = grossProfit - monthExpenses - monthDamageCost;
+
+  // Cash available: total money received from sales this month minus expenses paid out.
+  // (Sales revenue is treated as cash received at point of sale.)
+  const cashAvailable = totalSellAll - monthExpenses;
+
+  // Dues
+  const customerDue = allCredits.reduce((a, c) => a + c.remaining, 0);
+  const supplierDueArr = await Promise.all(allSuppliers.map(s => getSupplierSummary(s.id)));
+  const supplierDue = supplierDueArr.reduce((a, s) => a + s.remaining, 0);
+
+  // Today
+  const todaySales = todaySalesArr.reduce((a, s) => a + s.sellPrice * s.quantity, 0);
+  const todayProfit = todaySalesArr.reduce((a, s) => a + s.profit, 0);
+  const todayItems = todaySalesArr.reduce((a, s) => a + s.quantity, 0);
+
+  // Month
+  const monthSales = totalSellAll;
+  const monthProfit = grossProfit;
+
+  // Yesterday & last month profit
+  const yesterdayProfit = yesterdaySalesArr.reduce((a, s) => a + s.profit, 0);
+  const lastMonthProfit = lastMonthSalesArr.reduce((a, s) => a + s.profit, 0);
+
+  // Stock alerts
+  const lowStockProducts: DashboardStats['lowStockProducts'] = [];
+  let lowStockCount = 0;
+  let outOfStockCount = 0;
+  for (const p of allProducts) {
+    const qty = allInventory[p.id] || 0;
+    if (qty === 0) {
+      outOfStockCount++;
+      lowStockProducts.push({ id: p.id, name: p.name, qty: 0, threshold: p.reorderThreshold });
+    } else if (qty < p.reorderThreshold) {
+      lowStockCount++;
+      lowStockProducts.push({ id: p.id, name: p.name, qty, threshold: p.reorderThreshold });
+    }
+  }
+
+  // Top selling product (this month)
+  const qtyByProduct = new Map<string, { qty: number; profit: number }>();
+  for (const s of monthSalesArr) {
+    const cur = qtyByProduct.get(s.productId) || { qty: 0, profit: 0 };
+    cur.qty += s.quantity;
+    cur.profit += s.profit;
+    qtyByProduct.set(s.productId, cur);
+  }
+  let topProduct: DashboardStats['topProduct'] = null;
+  for (const [id, v] of qtyByProduct.entries()) {
+    const p = allProducts.find(x => x.id === id);
+    if (!topProduct || v.qty > topProduct.qty) {
+      topProduct = { id, name: p?.name || id, qty: v.qty, profit: v.profit };
+    }
+  }
+
+  return {
+    cashAvailable,
+    grossProfit,
+    netProfit,
+    supplierDue,
+    customerDue,
+    todaySales,
+    todayProfit,
+    todayItems,
+    monthSales,
+    monthProfit,
+    monthExpenses,
+    monthDamageCost,
+    monthNetProfit: netProfit,
+    yesterdayProfit,
+    lastMonthProfit,
+    lowStockCount,
+    outOfStockCount,
+    lowStockProducts,
+    topProduct,
   };
 }

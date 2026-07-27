@@ -4,9 +4,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, Plus, Check, X, AlertTriangle, Trash2, Save, History, Info, PackageX, HeartCrack } from 'lucide-react';
 import {
-  useCategories, useDayData, useI18n, useInventory,
+  useProducts, useDayData, useI18n, useInventory,
   saveSale, updateSale, deleteSale,
-  getLatestPriceSessionForCategory, getPriceSessionsForDate, savePriceSession, recalcDay, genId,
+  getLatestPriceSessionForProduct, getPriceSessionsForDate, savePriceSession, recalcDay, genId,
   getDamagesForDate, saveDamage, deleteDamage, todayStr,
   type Sale, type PriceSession, type DamageRecord,
 } from '@/lib/data-hooks-adapter';
@@ -19,12 +19,12 @@ type Props = {
 };
 
 export function ProfitCalculatorScreen({ date, onBack }: Props) {
-  const { categories } = useCategories();
+  const { products } = useProducts();
   const { day, sales, sessions, loading, refresh } = useDayData(date);
   const { inventory, refresh: refreshInventory } = useInventory();
   const { t, lang } = useI18n();
   const { toast } = useAppToast();
-  const [selectedCategory, setSelectedCategory] = useState<string>('');
+  const [selectedProduct, setSelectedProduct] = useState<string>('');
   const [quantity, setQuantity] = useState('');
   const [buyPrice, setBuyPrice] = useState('');
   const [sellPrice, setSellPrice] = useState('');
@@ -33,14 +33,14 @@ export function ProfitCalculatorScreen({ date, onBack }: Props) {
   const [showHistory, setShowHistory] = useState(false);
 
   /**
-   * Available categories = those with prices set (buy AND sell not null) AND stock > 0.
-   * Marked unavailable categories = those with stock > 0 but marked "අද නැත"
-   * (latest session has null prices). These show with a "අද විකුණුනවා" button.
+   * Available products = those with prices set (buy AND sell not null) AND stock > 0.
+   * Marked unavailable products = those with stock > 0 but marked "Not available"
+   * (latest session has null prices). These show with a "Sell Today" button.
    * Out of stock = stock === 0 (shown in warning banner, not in chips).
    */
-  const [availableCategories, setAvailableCategories] = useState<typeof categories>([]);
-  const [markedUnavailableCategories, setMarkedUnavailableCategories] = useState<{ cat: typeof categories[0]; stock: number }[]>([]);
-  const [outOfStockCategories, setOutOfStockCategories] = useState<Set<string>>(new Set());
+  const [availableProducts, setAvailableProducts] = useState<typeof products>([]);
+  const [markedUnavailableProducts, setMarkedUnavailableProducts] = useState<{ cat: typeof products[0]; stock: number }[]>([]);
+  const [outOfStockProducts, setOutOfStockProducts] = useState<Set<string>>(new Set());
   const [showPriceFormFor, setShowPriceFormFor] = useState<string | null>(null);
   const [miniBuyPrice, setMiniBuyPrice] = useState('');
   const [miniSellPrice, setMiniSellPrice] = useState('');
@@ -48,7 +48,7 @@ export function ProfitCalculatorScreen({ date, onBack }: Props) {
 
   // Damage eggs state
   const [showDamageForm, setShowDamageForm] = useState(false);
-  const [damageCategoryId, setDamageCategoryId] = useState('');
+  const [damageProductId, setDamageProductId] = useState('');
   const [damageQty, setDamageQty] = useState('');
   const [damagePrice, setDamagePrice] = useState('');
   const [damageSaving, setDamageSaving] = useState(false);
@@ -56,42 +56,42 @@ export function ProfitCalculatorScreen({ date, onBack }: Props) {
 
   useEffect(() => {
     (async () => {
-      const available: typeof categories = [];
-      const marked: { cat: typeof categories[0]; stock: number }[] = [];
+      const available: typeof products = [];
+      const marked: { cat: typeof products[0]; stock: number }[] = [];
       const outOfStock = new Set<string>();
-      for (const c of categories) {
+      for (const c of products) {
         const stock = inventory[c.id] || 0;
         if (stock === 0) {
           outOfStock.add(c.id);
           continue;
         }
-        const latest = await getLatestPriceSessionForCategory(date, c.id);
+        const latest = await getLatestPriceSessionForProduct(date, c.id);
         if (latest && latest.buyPrice != null && latest.sellPrice != null) {
           available.push(c);
         } else {
-          // Has stock but no prices (or marked "අද නැත")
+          // Has stock but no prices (or marked "Not available")
           marked.push({ cat: c, stock });
         }
       }
-      setAvailableCategories(available);
-      setMarkedUnavailableCategories(marked);
-      setOutOfStockCategories(outOfStock);
+      setAvailableProducts(available);
+      setMarkedUnavailableProducts(marked);
+      setOutOfStockProducts(outOfStock);
       // If currently selected is not in available, switch
       if (available.length > 0) {
-        const stillAvailable = available.some(c => c.id === selectedCategory);
-        if (!stillAvailable) setSelectedCategory(available[0].id);
+        const stillAvailable = available.some(c => c.id === selectedProduct);
+        if (!stillAvailable) setSelectedProduct(available[0].id);
       }
     })();
-  }, [categories, date, sessions, selectedCategory, inventory]);
+  }, [products, date, sessions, selectedProduct, inventory]);
 
   // Load today's damages
   useEffect(() => {
     getDamagesForDate(date).then(setDamages);
   }, [date, inventory]);
 
-  // When "අද විකුණුනවා" is clicked, open mini form
-  const handleSellToday = (categoryId: string) => {
-    setShowPriceFormFor(categoryId);
+  // When "Sell Today" is clicked, open mini form
+  const handleSellToday = (productId: string) => {
+    setShowPriceFormFor(productId);
     setMiniBuyPrice('');
     setMiniSellPrice('');
   };
@@ -112,7 +112,7 @@ export function ProfitCalculatorScreen({ date, onBack }: Props) {
       const newSession: PriceSession = {
         id: genId(),
         date,
-        categoryId: showPriceFormFor,
+        productId: showPriceFormFor,
         sessionIndex: maxIdx + 1,
         buyPrice: buyN,
         sellPrice: sellN,
@@ -120,7 +120,7 @@ export function ProfitCalculatorScreen({ date, onBack }: Props) {
       };
       await savePriceSession(newSession);
       // Switch to this category
-      setSelectedCategory(showPriceFormFor);
+      setSelectedProduct(showPriceFormFor);
       setBuyPrice(String(buyN));
       setSellPrice(String(sellN));
       setShowPriceFormFor(null);
@@ -139,11 +139,11 @@ export function ProfitCalculatorScreen({ date, onBack }: Props) {
     setDamageQty('');
     setDamagePrice('');
     // Pick first category with stock
-    const firstWithStock = categories.find(c => (inventory[c.id] || 0) > 0);
-    setDamageCategoryId(firstWithStock?.id || '');
+    const firstWithStock = products.find(c => (inventory[c.id] || 0) > 0);
+    setDamageProductId(firstWithStock?.id || '');
     // Pre-fill price if today's price exists
     if (firstWithStock) {
-      getLatestPriceSessionForCategory(date, firstWithStock.id).then(latest => {
+      getLatestPriceSessionForProduct(date, firstWithStock.id).then(latest => {
         if (latest && latest.buyPrice != null) {
           setDamagePrice(String(latest.buyPrice));
         }
@@ -152,9 +152,9 @@ export function ProfitCalculatorScreen({ date, onBack }: Props) {
   };
 
   const handleDamageCategoryChange = async (catId: string) => {
-    setDamageCategoryId(catId);
+    setDamageProductId(catId);
     setDamagePrice('');
-    const latest = await getLatestPriceSessionForCategory(date, catId);
+    const latest = await getLatestPriceSessionForProduct(date, catId);
     if (latest && latest.buyPrice != null) {
       setDamagePrice(String(latest.buyPrice));
     }
@@ -163,9 +163,9 @@ export function ProfitCalculatorScreen({ date, onBack }: Props) {
   const handleSaveDamage = async () => {
     const qtyN = parseInt(damageQty);
     const priceN = parseFloat(damagePrice);
-    if (!damageCategoryId) { toast({ title: t('damage.err.qty'), variant: 'warning' }); return; }
+    if (!damageProductId) { toast({ title: t('damage.err.qty'), variant: 'warning' }); return; }
     if (!isFinite(qtyN) || qtyN <= 0) { toast({ title: t('damage.err.qty'), variant: 'warning' }); return; }
-    const stock = inventory[damageCategoryId] || 0;
+    const stock = inventory[damageProductId] || 0;
     if (stock === 0) { toast({ title: t('damage.noStock'), variant: 'error' }); return; }
     if (!isFinite(priceN) || priceN <= 0) { toast({ title: t('damage.err.price'), variant: 'warning' }); return; }
     if (qtyN > stock) {
@@ -177,7 +177,7 @@ export function ProfitCalculatorScreen({ date, onBack }: Props) {
       const damage: DamageRecord = {
         id: genId(),
         date,
-        categoryId: damageCategoryId,
+        productId: damageProductId,
         quantity: qtyN,
         pricePerEgg: priceN,
         totalCost: qtyN * priceN,
@@ -211,15 +211,15 @@ export function ProfitCalculatorScreen({ date, onBack }: Props) {
 
   // When category changes, fetch latest prices for that category on this date
   useEffect(() => {
-    if (!selectedCategory) return;
+    if (!selectedProduct) return;
     (async () => {
-      const latest = await getLatestPriceSessionForCategory(date, selectedCategory);
+      const latest = await getLatestPriceSessionForProduct(date, selectedProduct);
       if (latest && latest.buyPrice != null && latest.sellPrice != null) {
         setBuyPrice(String(latest.buyPrice));
         setSellPrice(String(latest.sellPrice));
       }
     })();
-  }, [selectedCategory, date]);
+  }, [selectedProduct, date]);
 
   const parseNum = (s: string): number => {
     const n = parseFloat(s);
@@ -234,11 +234,11 @@ export function ProfitCalculatorScreen({ date, onBack }: Props) {
   const isNegative = sellN > 0 && buyN > 0 && sellN < buyN;
 
   // Current stock for the selected category
-  const currentStock = selectedCategory ? (inventory[selectedCategory] || 0) : 0;
+  const currentStock = selectedProduct ? (inventory[selectedProduct] || 0) : 0;
   const exceedsStock = !editingId && qtyN > currentStock && currentStock > 0;
 
   const handleSave = async () => {
-    if (!selectedCategory) {
+    if (!selectedProduct) {
       toast({ title: t('calc.err.category'), variant: 'warning' });
       return;
     }
@@ -278,7 +278,7 @@ export function ProfitCalculatorScreen({ date, onBack }: Props) {
         if (existing) {
           const updated: Sale = {
             ...existing,
-            categoryId: selectedCategory,
+            productId: selectedProduct,
             quantity: qtyN,
             buyPrice: buyN,
             sellPrice: sellN,
@@ -290,7 +290,7 @@ export function ProfitCalculatorScreen({ date, onBack }: Props) {
         setEditingId(null);
       } else {
         // Check if prices changed from latest session; if so, create a new session
-        const latest = await getLatestPriceSessionForCategory(date, selectedCategory);
+        const latest = await getLatestPriceSessionForProduct(date, selectedProduct);
         let sessionIndex = latest?.sessionIndex ?? 0;
         const pricesChanged = !latest || latest.buyPrice !== buyN || latest.sellPrice !== sellN;
         if (pricesChanged) {
@@ -298,7 +298,7 @@ export function ProfitCalculatorScreen({ date, onBack }: Props) {
           const newSession: PriceSession = {
             id: genId(),
             date,
-            categoryId: selectedCategory,
+            productId: selectedProduct,
             sessionIndex,
             buyPrice: buyN,
             sellPrice: sellN,
@@ -310,7 +310,7 @@ export function ProfitCalculatorScreen({ date, onBack }: Props) {
         const sale: Sale = {
           id: genId(),
           date,
-          categoryId: selectedCategory,
+          productId: selectedProduct,
           sessionIndex,
           quantity: qtyN,
           buyPrice: buyN,
@@ -321,7 +321,7 @@ export function ProfitCalculatorScreen({ date, onBack }: Props) {
         await saveSale(sale);
         toast({
           title: t('calc.saleSaved.title'),
-          description: t('calc.saleSaved.desc', { qty: formatNumber(qtyN), profit: formatCurrency(totalProfit, 'රු.') }),
+          description: t('calc.saleSaved.desc', { qty: formatNumber(qtyN), profit: formatCurrency(totalProfit, 'LKR') }),
           variant: 'success',
         });
       }
@@ -338,7 +338,7 @@ export function ProfitCalculatorScreen({ date, onBack }: Props) {
 
   const handleEdit = (sale: Sale) => {
     setEditingId(sale.id);
-    setSelectedCategory(sale.categoryId);
+    setSelectedProduct(sale.productId);
     setQuantity(String(sale.quantity));
     setBuyPrice(String(sale.buyPrice));
     setSellPrice(String(sale.sellPrice));
@@ -348,7 +348,7 @@ export function ProfitCalculatorScreen({ date, onBack }: Props) {
   const handleDelete = async (sale: Sale) => {
     if (!confirm(t('calc.deleteConfirm', {
       qty: formatNumber(sale.quantity),
-      profit: formatCurrency(sale.profit, 'රු.'),
+      profit: formatCurrency(sale.profit, 'LKR'),
     }))) return;
     await deleteSale(sale.id, `Sale deleted for ${date}`);
     toast({ title: t('calc.deleted.title'), variant: 'success' });
@@ -366,18 +366,18 @@ export function ProfitCalculatorScreen({ date, onBack }: Props) {
   };
 
   // Group sales by category for display
-  const salesByCategory = useMemo(() => {
+  const salesByProduct = useMemo(() => {
     const map = new Map<string, Sale[]>();
     for (const s of sales) {
-      if (!map.has(s.categoryId)) map.set(s.categoryId, []);
-      map.get(s.categoryId)!.push(s);
+      if (!map.has(s.productId)) map.set(s.productId, []);
+      map.get(s.productId)!.push(s);
     }
     return map;
   }, [sales]);
 
-  const noAvailableCategories = availableCategories.length === 0 && markedUnavailableCategories.length === 0;
-  const hasOutOfStockCats = outOfStockCategories.size > 0;
-  const hasMarkedCats = markedUnavailableCategories.length > 0;
+  const noAvailableCategories = availableProducts.length === 0 && markedUnavailableProducts.length === 0;
+  const hasOutOfStockCats = outOfStockProducts.size > 0;
+  const hasMarkedCats = markedUnavailableProducts.length > 0;
 
   return (
     <div className="app-shell pb-28">
@@ -410,10 +410,10 @@ export function ProfitCalculatorScreen({ date, onBack }: Props) {
         {/* Today's totals */}
         {!loading && day && (
           <div className="grid grid-cols-2 gap-3">
-            <StatCard label={t('dashboard.todayProfit')} value={formatCurrency(day.totalProfit, 'රු.')} color="success" />
-            <StatCard label={t('dashboard.todayEggs')} value={`${formatNumber(day.totalEggs)} ${lang === 'si' ? 'ක්' : ''}`.trim()} color="primary" />
-            <StatCard label={t('dashboard.todaySell')} value={formatCurrency(day.totalSell, 'රු.')} color="info" />
-            <StatCard label={t('dashboard.todayBuy')} value={formatCurrency(day.totalBuy, 'රු.')} color="muted" />
+            <StatCard label={t('dashboard.todayProfit')} value={formatCurrency(day.totalProfit, 'LKR')} color="success" />
+            <StatCard label={t('dashboard.todayEggs')} value={`${formatNumber((day.totalItems != null ? day.totalItems : (day as any).totalEggs))} `.trim()} color="primary" />
+            <StatCard label={t('dashboard.todaySell')} value={formatCurrency(day.totalSell, 'LKR')} color="info" />
+            <StatCard label={t('dashboard.todayBuy')} value={formatCurrency(day.totalBuy, 'LKR')} color="muted" />
           </div>
         )}
 
@@ -422,9 +422,9 @@ export function ProfitCalculatorScreen({ date, onBack }: Props) {
           <div className="glass rounded-2xl p-3 border-red-300 bg-red-50/60 dark:bg-red-900/20 flex items-start gap-2">
             <PackageX className="text-red-500 flex-shrink-0 mt-0.5" size={16} />
             <p className="text-xs text-red-700 dark:text-red-300">
-              {Array.from(outOfStockCategories).map(id => {
-                const c = categories.find(x => x.id === id);
-                return c?.nameKey ? t(c.nameKey) : c?.name || id;
+              {Array.from(outOfStockProducts).map(id => {
+                const c = products.find(x => x.id === id);
+                return c?.name || id;
               }).join(', ')} — {t('inventory.outOfStock')}
             </p>
           </div>
@@ -452,31 +452,29 @@ export function ProfitCalculatorScreen({ date, onBack }: Props) {
               <p className="text-sm text-stone-700 dark:text-amber-100 mb-3">
                 {hasOutOfStockCats
                   ? t('inventory.outOfStockWarn')
-                  : (lang === 'si'
-                    ? 'අද දිනට ලබා ගත හැකි බිත්තර වර්ග නොමැත. පළමුව "මිල වෙනස් කරන්න" මඟින් අද මිල ඇතුළත් කරන්න.'
-                    : 'No egg categories available today. Please enter today\'s prices first via "Change Prices".')
+                  : 'No products available today. Add products in Inventory first.'
                 }
               </p>
             </div>
           ) : (
             <>
-              {/* Category chips — available categories with stock AND prices */}
-              {availableCategories.length > 0 && (
+              {/* Category chips — available products with stock AND prices */}
+              {availableProducts.length > 0 && (
                 <div className="flex gap-2 overflow-x-auto scroll-area pb-2 -mx-1 px-1 mb-4">
-                  {availableCategories.map((c) => {
+                  {availableProducts.map((c) => {
                     const stock = inventory[c.id] || 0;
                     return (
                       <button
                         key={c.id}
-                        onClick={() => setSelectedCategory(c.id)}
+                        onClick={() => setSelectedProduct(c.id)}
                         className={`flex-shrink-0 px-3.5 py-2.5 rounded-xl text-sm font-semibold transition-all flex items-center gap-1.5 ${
-                          selectedCategory === c.id
+                          selectedProduct === c.id
                             ? 'glass-primary text-white'
                             : 'glass text-stone-700 dark:text-amber-100'
                         }`}
                       >
                         <span className="w-2 h-2 rounded-full" style={{ background: c.color }} />
-                        {c.nameKey ? t(c.nameKey) : c.name}
+                        {c.name}
                         <span className="text-[10px] opacity-70">({formatNumber(stock)})</span>
                       </button>
                     );
@@ -485,7 +483,7 @@ export function ProfitCalculatorScreen({ date, onBack }: Props) {
               )}
 
               {/* Current stock indicator */}
-              {selectedCategory && availableCategories.some(c => c.id === selectedCategory) && (
+              {selectedProduct && availableProducts.some(c => c.id === selectedProduct) && (
                 <div className="glass rounded-xl p-2.5 mb-3 flex items-center justify-between text-xs">
                   <span className="text-stone-600 dark:text-amber-100/70">{t('inventory.currentStock')}</span>
                   <span className={`font-bold ${currentStock < 50 ? 'text-orange-600 dark:text-orange-400' : 'text-green-700 dark:text-green-400'}`}>
@@ -495,7 +493,7 @@ export function ProfitCalculatorScreen({ date, onBack }: Props) {
               )}
 
               {/* Inputs — only show when an available category is selected */}
-              {selectedCategory && availableCategories.some(c => c.id === selectedCategory) && (
+              {selectedProduct && availableProducts.some(c => c.id === selectedProduct) && (
               <>
               {/* Inputs */}
               <div className="grid grid-cols-2 gap-3 mb-3">
@@ -511,7 +509,7 @@ export function ProfitCalculatorScreen({ date, onBack }: Props) {
                       placeholder="0.00"
                       className="w-full px-3 py-3 rounded-xl bg-white/70 dark:bg-white/5 border border-white/80 dark:border-white/10 text-stone-800 dark:text-amber-50 font-semibold focus:outline-none focus:ring-2 focus:ring-amber-400"
                     />
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-500 text-xs">රු.</span>
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-500 text-xs">LKR</span>
                   </div>
                 </div>
                 <div>
@@ -528,7 +526,7 @@ export function ProfitCalculatorScreen({ date, onBack }: Props) {
                         isNegative ? 'border-red-300 focus:ring-red-400' : 'border-white/80 dark:border-white/10 focus:ring-amber-400'
                       } text-stone-800 dark:text-amber-50`}
                     />
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-500 text-xs">රු.</span>
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-500 text-xs">LKR</span>
                   </div>
                 </div>
               </div>
@@ -563,17 +561,17 @@ export function ProfitCalculatorScreen({ date, onBack }: Props) {
                   <div className="flex justify-between text-xs text-stone-600 dark:text-amber-100/70">
                     <span>{t('calc.profitPerEgg')}</span>
                     <span className={isNegative ? 'text-red-600 dark:text-red-400 font-bold' : 'text-green-700 dark:text-green-400 font-bold'}>
-                      {formatCurrency(profitPerEgg, 'රු.')}
+                      {formatCurrency(profitPerEgg, 'LKR')}
                     </span>
                   </div>
                   <div className="flex justify-between text-xs text-stone-600 dark:text-amber-100/70">
                     <span>{t('calc.soldQty')}</span>
-                    <span className="font-bold text-stone-800 dark:text-amber-50">{formatNumber(qtyN)} {lang === 'si' ? 'ක්' : ''}</span>
+                    <span className="font-bold text-stone-800 dark:text-amber-50">{formatNumber(qtyN)} ''</span>
                   </div>
                   <div className="border-t border-white/30 dark:border-white/10 pt-1.5 flex justify-between">
                     <span className="text-sm font-semibold text-stone-700 dark:text-amber-100">{t('calc.totalProfit')}</span>
                     <span className={`text-lg font-bold ${isNegative ? 'text-red-600 dark:text-red-400' : 'text-green-700 dark:text-green-400'}`}>
-                      {formatCurrency(totalProfit, 'රු.')}
+                      {formatCurrency(totalProfit, 'LKR')}
                     </span>
                   </div>
                 </div>
@@ -607,17 +605,17 @@ export function ProfitCalculatorScreen({ date, onBack }: Props) {
               </>
               )}
 
-              {/* Marked unavailable categories — moved below submit button */}
+              {/* Marked unavailable products — moved below submit button */}
               {hasMarkedCats && (
                 <div className="mt-4">
                   <p className="text-xs text-stone-500 dark:text-amber-100/50 mb-2">{t('calc.markedNotSelling')}</p>
                   <div className="space-y-2">
-                    {markedUnavailableCategories.map(({ cat, stock }) => (
+                    {markedUnavailableProducts.map(({ cat, stock }) => (
                       <div key={cat.id} className="glass rounded-xl p-3 flex items-center gap-3">
                         <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: cat.color }} />
                         <div className="flex-1 min-w-0">
                           <p className="font-semibold text-sm text-stone-700 dark:text-amber-100/70 truncate">
-                            {cat.nameKey ? t(cat.nameKey) : cat.name}
+                            {cat?.name}
                           </p>
                           <p className="text-[10px] text-stone-500 dark:text-amber-100/40">
                             {formatNumber(stock)} {t('inventory.eggs')} · {t('calc.markedUnavailable')}
@@ -649,7 +647,7 @@ export function ProfitCalculatorScreen({ date, onBack }: Props) {
                 <h2 className="font-bold text-sm text-stone-800 dark:text-amber-50">{t('damage.title')}</h2>
                 <p className="text-[10px] text-stone-500 dark:text-amber-100/50">
                   {damages.length > 0
-                    ? `${formatNumber(totalDamageEggs)} ${t('inventory.eggs')} · ${formatCurrency(totalDamageCost, 'රු.')}`
+                    ? `${formatNumber(totalDamageEggs)} ${t('inventory.eggs')} · ${formatCurrency(totalDamageCost, 'LKR')}`
                     : t('damage.noDamages')}
                 </p>
               </div>
@@ -664,16 +662,16 @@ export function ProfitCalculatorScreen({ date, onBack }: Props) {
           {damages.length > 0 && (
             <div className="space-y-1.5">
               {damages.map((d) => {
-                const cat = categories.find(c => c.id === d.categoryId);
+                const cat = products.find(c => c.id === d.productId);
                 return (
                   <div key={d.id} className="glass rounded-xl p-2.5 flex items-center gap-2">
                     <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: cat?.color }} />
                     <div className="flex-1 min-w-0">
                       <p className="text-xs font-semibold text-stone-800 dark:text-amber-50">
-                        {formatNumber(d.quantity)} {cat?.nameKey ? t(cat.nameKey) : cat?.name}
+                        {formatNumber(d.quantity)} {cat?.name}
                       </p>
                       <p className="text-[10px] text-stone-500 dark:text-amber-100/50">
-                        {formatCurrency(d.totalCost, 'රු.')} · {new Date(d.createdAt).toLocaleTimeString(lang === 'si' ? 'si-LK' : 'en-US', { hour: '2-digit', minute: '2-digit' })}
+                        {formatCurrency(d.totalCost, 'LKR')} · {new Date(d.createdAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
                       </p>
                     </div>
                     <button
@@ -698,7 +696,7 @@ export function ProfitCalculatorScreen({ date, onBack }: Props) {
             </div>
             <div className="space-y-2">
               {sales.slice().sort((a, b) => b.createdAt - a.createdAt).map((sale) => {
-                const cat = categories.find((c) => c.id === sale.categoryId);
+                const cat = products.find((c) => c.id === sale.productId);
                 return (
                   <div
                     key={sale.id}
@@ -708,23 +706,23 @@ export function ProfitCalculatorScreen({ date, onBack }: Props) {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <p className="font-semibold text-sm text-stone-800 dark:text-amber-50 truncate">
-                          {cat?.nameKey ? t(cat.nameKey) : cat?.name}
+                          {cat?.name}
                         </p>
                         <span className="text-[10px] text-stone-500 dark:text-amber-100/50 flex-shrink-0">
                           {t('calc.sessionN', { n: sale.sessionIndex + 1 })}
                         </span>
                       </div>
                       <div className="flex items-center gap-3 text-xs text-stone-600 dark:text-amber-100/70 mt-0.5">
-                        <span>{formatNumber(sale.quantity)} {lang === 'si' ? 'ක්' : ''}</span>
+                        <span>{formatNumber(sale.quantity)} ''</span>
                         <span>·</span>
-                        <span>{lang === 'si' ? 'ගත්තේ' : 'Buy'} {formatCurrency(sale.buyPrice, 'රු.')}</span>
+                        <span>'Buy' {formatCurrency(sale.buyPrice, 'LKR')}</span>
                         <span>·</span>
-                        <span>{lang === 'si' ? 'විකුණුවේ' : 'Sell'} {formatCurrency(sale.sellPrice, 'රු.')}</span>
+                        <span>'Sell' {formatCurrency(sale.sellPrice, 'LKR')}</span>
                       </div>
                     </div>
                     <div className="text-right flex-shrink-0">
                       <p className={`font-bold text-sm ${sale.profit < 0 ? 'text-red-600 dark:text-red-400' : 'text-green-700 dark:text-green-400'}`}>
-                        {formatCurrency(sale.profit, 'රු.')}
+                        {formatCurrency(sale.profit, 'LKR')}
                       </p>
                     </div>
                     <div className="flex flex-col gap-1">
@@ -762,22 +760,22 @@ export function ProfitCalculatorScreen({ date, onBack }: Props) {
             <h2 className="font-bold text-stone-800 dark:text-amber-50 mb-3">{t('calc.priceSessions')} ({sessions.length})</h2>
             <div className="space-y-2">
               {sessions.slice().sort((a, b) => b.createdAt - a.createdAt).map((s) => {
-                const cat = categories.find((c) => c.id === s.categoryId);
+                const cat = products.find((c) => c.id === s.productId);
                 const unavailable = s.buyPrice == null && s.sellPrice == null;
                 return (
                   <div key={s.id} className={`glass rounded-2xl p-3 flex items-center gap-3 ${unavailable ? 'opacity-60' : ''}`}>
                     <div className="w-1 self-stretch rounded-full" style={{ background: cat?.color }} />
                     <div className="flex-1">
                       <p className="font-semibold text-sm text-stone-800 dark:text-amber-50">
-                        {cat?.nameKey ? t(cat.nameKey) : cat?.name}
+                        {cat?.name}
                         {unavailable && <span className="ml-2 text-[10px] text-stone-500">· {t('price.notAvailable')}</span>}
                       </p>
                       <p className="text-xs text-stone-600 dark:text-amber-100/70">
-                        {t('calc.sessionN', { n: s.sessionIndex + 1 })} · {lang === 'si' ? 'ගත්තේ' : 'Buy'} {unavailable ? '—' : formatCurrency(s.buyPrice!, 'රු.')} · {lang === 'si' ? 'විකුණුවේ' : 'Sell'} {unavailable ? '—' : formatCurrency(s.sellPrice!, 'රු.')}
+                        {t('calc.sessionN', { n: s.sessionIndex + 1 })} · 'Buy' {unavailable ? '—' : formatCurrency(s.buyPrice!, 'LKR')} · 'Sell' {unavailable ? '—' : formatCurrency(s.sellPrice!, 'LKR')}
                       </p>
                     </div>
                     <span className="text-[10px] text-stone-500 dark:text-amber-100/50">
-                      {new Date(s.createdAt).toLocaleTimeString(lang === 'si' ? 'si-LK' : 'en-US', { hour: '2-digit', minute: '2-digit' })}
+                      {new Date(s.createdAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
                     </span>
                   </div>
                 );
@@ -809,7 +807,7 @@ export function ProfitCalculatorScreen({ date, onBack }: Props) {
               transition={{ type: 'spring', damping: 28, stiffness: 280 }}
             >
               {(() => {
-                const cat = categories.find(c => c.id === showPriceFormFor);
+                const cat = products.find(c => c.id === showPriceFormFor);
                 return (
                   <>
                     <div className="px-5 pt-5 pb-3 flex items-center justify-between border-b border-white/30">
@@ -817,7 +815,7 @@ export function ProfitCalculatorScreen({ date, onBack }: Props) {
                         <h2 className="text-base font-bold text-stone-800 dark:text-amber-50">{t('calc.enterPricesFor')}</h2>
                         <p className="text-xs text-stone-600 dark:text-amber-100/70 flex items-center gap-1 mt-0.5">
                           <span className="w-2 h-2 rounded-full" style={{ background: cat?.color }} />
-                          {cat?.nameKey ? t(cat.nameKey) : cat?.name}
+                          {cat?.name}
                         </p>
                       </div>
                       <button onClick={() => setShowPriceFormFor(null)} className="w-8 h-8 rounded-full glass flex items-center justify-center text-stone-700 dark:text-amber-50">
@@ -839,7 +837,7 @@ export function ProfitCalculatorScreen({ date, onBack }: Props) {
                               autoFocus
                               className="w-full px-3 py-2.5 rounded-xl bg-white/70 dark:bg-white/5 border border-white/80 dark:border-white/10 text-stone-800 dark:text-amber-50 font-semibold focus:outline-none focus:ring-2 focus:ring-amber-400"
                             />
-                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-500 text-xs">රු.</span>
+                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-500 text-xs">LKR</span>
                           </div>
                         </div>
                         <div>
@@ -854,7 +852,7 @@ export function ProfitCalculatorScreen({ date, onBack }: Props) {
                               placeholder="0.00"
                               className="w-full px-3 py-2.5 rounded-xl bg-white/70 dark:bg-white/5 border border-white/80 dark:border-white/10 text-stone-800 dark:text-amber-50 font-semibold focus:outline-none focus:ring-2 focus:ring-amber-400"
                             />
-                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-500 text-xs">රු.</span>
+                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-500 text-xs">LKR</span>
                           </div>
                         </div>
                       </div>
@@ -913,21 +911,21 @@ export function ProfitCalculatorScreen({ date, onBack }: Props) {
                 <div>
                   <label className="text-xs text-stone-600 dark:text-amber-100/70 mb-1 block">{t('damage.eggType')}</label>
                   <div className="flex gap-1.5 overflow-x-auto scroll-area pb-1">
-                    {categories.filter(c => (inventory[c.id] || 0) > 0).map((c) => (
+                    {products.filter(c => (inventory[c.id] || 0) > 0).map((c) => (
                       <button
                         key={c.id}
                         onClick={() => handleDamageCategoryChange(c.id)}
                         className={`flex-shrink-0 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1 ${
-                          damageCategoryId === c.id ? 'glass-danger text-white' : 'glass text-stone-700 dark:text-amber-100'
+                          damageProductId === c.id ? 'glass-danger text-white' : 'glass text-stone-700 dark:text-amber-100'
                         }`}
                       >
                         <span className="w-2 h-2 rounded-full" style={{ background: c.color }} />
-                        {c.nameKey ? t(c.nameKey) : c.name}
+                        {c.name}
                         <span className="text-[9px] opacity-70">({formatNumber(inventory[c.id] || 0)})</span>
                       </button>
                     ))}
                   </div>
-                  {categories.filter(c => (inventory[c.id] || 0) > 0).length === 0 && (
+                  {products.filter(c => (inventory[c.id] || 0) > 0).length === 0 && (
                     <p className="text-xs text-red-500 mt-1">{t('damage.noStock')}</p>
                   )}
                 </div>
@@ -957,7 +955,7 @@ export function ProfitCalculatorScreen({ date, onBack }: Props) {
                       placeholder="0.00"
                       className="w-full px-3 py-2.5 rounded-xl bg-white/70 dark:bg-white/5 border border-white/80 dark:border-white/10 text-stone-800 dark:text-amber-50 font-semibold focus:outline-none focus:ring-2 focus:ring-amber-400"
                     />
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-500 text-xs">රු.</span>
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-stone-500 text-xs">LKR</span>
                   </div>
                 </div>
                 {/* Total preview */}
@@ -965,7 +963,7 @@ export function ProfitCalculatorScreen({ date, onBack }: Props) {
                   <div className="glass rounded-xl p-2.5 flex items-center justify-between">
                     <span className="text-xs text-stone-600 dark:text-amber-100/70">{t('damage.totalCost')}</span>
                     <span className="font-bold text-sm text-red-600 dark:text-red-400">
-                      {formatCurrency(parseInt(damageQty) * parseFloat(damagePrice), 'රු.')}
+                      {formatCurrency(parseInt(damageQty) * parseFloat(damagePrice), 'LKR')}
                     </span>
                   </div>
                 )}

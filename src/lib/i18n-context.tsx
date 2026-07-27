@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useEffect, useState, type ReactNode, useCallback } from 'react';
+import { createContext, useContext, useCallback, type ReactNode } from 'react';
 import { translate, type Lang } from './i18n';
 import { getSettings, saveSettings, type Settings } from './db';
 
@@ -8,35 +8,26 @@ type I18nCtx = {
   lang: Lang;
   setLang: (l: Lang) => Promise<void>;
   t: (key: string, vars?: Record<string, string | number>) => string;
-  /** Raw translate using PDF language (always English-friendly labels mixed with Sinhala numbers as needed) */
   ready: boolean;
 };
 
 const Ctx = createContext<I18nCtx | null>(null);
 
 export function I18nProvider({ children }: { children: ReactNode }) {
-  const [lang, setLangState] = useState<Lang>('si');
-  const [ready, setReady] = useState(false);
+  // Language is fixed to 'en' for v3.0. We keep the provider shape for
+  // API stability; setLang is a no-op.
+  const lang: Lang = 'en';
 
-  useEffect(() => {
-    (async () => {
-      const s = await getSettings();
-      setLangState(s.language || 'si');
-      setReady(true);
-    })();
-  }, []);
-
-  const setLang = useCallback(async (l: Lang) => {
-    setLangState(l);
-    await saveSettings({ language: l });
+  const setLang = useCallback(async (_l: Lang) => {
+    // no-op — English only in v3.0
   }, []);
 
   const t = useCallback((key: string, vars?: Record<string, string | number>) => {
-    return translate(lang, key, vars);
-  }, [lang]);
+    return translate('en', key, vars);
+  }, []);
 
   return (
-    <Ctx.Provider value={{ lang, setLang, t, ready }}>
+    <Ctx.Provider value={{ lang, setLang, t, ready: true }}>
       {children}
     </Ctx.Provider>
   );
@@ -48,7 +39,7 @@ export function useI18n(): I18nCtx {
   return ctx;
 }
 
-/** Standalone translator for code that doesn't have React context (e.g. PDF generation, service worker). */
+/** Standalone translator for non-React code (PDF generation, service worker). */
 export function translatorFor(lang: Lang) {
   return (key: string, vars?: Record<string, string | number>) => translate(lang, key, vars);
 }

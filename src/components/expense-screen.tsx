@@ -46,6 +46,25 @@ export function ExpenseScreen({ onBack, currency }: Props) {
 
   const realProfit = salesProfit - totalThisMonth;
 
+  // 7-day breakdown
+  const last7Days = useMemo(() => {
+    const today = todayStr();
+    const days: { date: string; total: number; label: string }[] = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+      const total = expenses
+        .filter((e) => e.date === dateStr)
+        .reduce((a, e) => a + e.amount, 0);
+      const label = d.toLocaleDateString('en-US', { weekday: 'short' });
+      days.push({ date: dateStr, total, label });
+    }
+    return days;
+  }, [expenses]);
+
+  const totalLast7Days = last7Days.reduce((a, d) => a + d.total, 0);
+
   const handleDelete = async (e: Expense) => {
     if (!confirm(t('expense.deleteConfirm'))) return;
     await deleteExpense(e.id);
@@ -116,6 +135,34 @@ export function ExpenseScreen({ onBack, currency }: Props) {
             <span className="text-sm text-stone-700 dark:text-amber-100/80">{t('expense.totalThisMonth')}</span>
           </div>
           <span className="font-bold text-red-600 dark:text-red-400">{formatCurrency(totalThisMonth, currency)}</span>
+        </div>
+
+        {/* 7-day breakdown */}
+        <div className="glass-strong rounded-3xl p-5">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-bold text-sm text-stone-800 dark:text-amber-50">{t('expense.last7')}</h3>
+            <span className="text-xs font-bold text-red-600 dark:text-red-400">{formatCurrency(totalLast7Days, currency)}</span>
+          </div>
+          <div className="flex items-end justify-between gap-1.5 h-32">
+            {last7Days.map((d, i) => {
+              const maxTotal = Math.max(...last7Days.map((x) => x.total), 1);
+              const height = (d.total / maxTotal) * 100;
+              return (
+                <div key={i} className="flex-1 flex flex-col items-center gap-1">
+                  <div className="text-[9px] font-semibold text-stone-600 dark:text-amber-100/70 h-3">
+                    {d.total > 0 ? formatNumber(d.total, 0) : ''}
+                  </div>
+                  <div className="w-full bg-stone-200/60 dark:bg-stone-700/60 rounded-t-md flex-1 flex items-end overflow-hidden">
+                    <div
+                      className="w-full bg-gradient-to-t from-amber-500 to-amber-400 rounded-t-md transition-all"
+                      style={{ height: `${height}%`, minHeight: d.total > 0 ? '4px' : '0' }}
+                    />
+                  </div>
+                  <span className="text-[9px] text-stone-500 dark:text-amber-100/60">{d.label}</span>
+                </div>
+              );
+            })}
+          </div>
         </div>
 
         {/* Expense list */}
@@ -210,7 +257,7 @@ function ExpenseForm({ open, onClose, onSaved, currency }: {
     }
   };
 
-  const categories: Expense['category'][] = ['transport', 'electricity', 'bags', 'rent', 'other'];
+  const products: Expense['category'][] = ['transport', 'electricity', 'bags', 'rent', 'other'];
 
   return (
     <AnimatePresence>
@@ -239,7 +286,7 @@ function ExpenseForm({ open, onClose, onSaved, currency }: {
               <div>
                 <label className="text-xs text-stone-600 dark:text-amber-100/70 mb-1 block">{t('expense.category')}</label>
                 <div className="grid grid-cols-3 gap-2">
-                  {categories.map((c) => (
+                  {products.map((c) => (
                     <button
                       key={c}
                       onClick={() => setCategory(c)}

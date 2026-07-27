@@ -164,7 +164,7 @@ export function DailyReportsScreen({ onBack, onEditDay, onOpenPdf, onOpenMonthly
                       <span className="px-2 py-0.5 rounded-full bg-stone-200/60 dark:bg-white/10 text-stone-600 dark:text-amber-100/70">{t('reports.closed')}</span>
                     ) : (
                       <>
-                        <span>{formatNumber(r.totalEggs)} {lang === 'si' ? 'බිත්තර' : 'eggs'}</span>
+                        <span>{formatNumber((r.totalItems != null ? r.totalItems : (r as any).totalEggs))} 'eggs'</span>
                         <span>·</span>
                         <span>{r.saleCount} {t('reports.salesCount')}</span>
                       </>
@@ -207,7 +207,7 @@ function DayDetailDrawer({ date, onClose, onEditDay, onChanged, currency }: {
   const [day, setDay] = useState<DayRecord | undefined>(undefined);
   const [sales, setSales] = useState<Sale[]>([]);
   const [sessions, setSessions] = useState<PriceSession[]>([]);
-  const [categories, setCategories] = useState<EggCategory[]>([]);
+  const [products, setCategories] = useState<EggCategory[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -278,7 +278,7 @@ function DayDetailDrawer({ date, onClose, onEditDay, onChanged, currency }: {
               {/* Summary */}
               <div className="grid grid-cols-2 gap-2">
                 <SummaryBox label={t('reports.totalProfit')} value={day ? formatCurrency(day.totalProfit, currency) : '—'} color={day && day.totalProfit < 0 ? 'danger' : 'success'} />
-                <SummaryBox label={t('reports.totalSold')} value={day ? `${formatNumber(day.totalEggs)} ${lang === 'si' ? 'ක්' : ''}`.trim() : `0 ${lang === 'si' ? 'ක්' : ''}`.trim()} color="primary" />
+                <SummaryBox label={t('reports.totalSold')} value={day ? `${formatNumber((day.totalItems != null ? day.totalItems : (day as any).totalEggs))} $''`.trim() : `0 $''`.trim()} color="primary" />
                 <SummaryBox label={t('reports.totalSell')} value={day ? formatCurrency(day.totalSell, currency) : '—'} color="info" />
                 <SummaryBox label={t('reports.totalBuy')} value={day ? formatCurrency(day.totalBuy, currency) : '—'} color="muted" />
               </div>
@@ -307,13 +307,13 @@ function DayDetailDrawer({ date, onClose, onEditDay, onChanged, currency }: {
                 ) : (
                   <div className="space-y-2">
                     {sales.slice().sort((a, b) => a.createdAt - b.createdAt).map((sale) => {
-                      const cat = categories.find((c) => c.id === sale.categoryId);
+                      const cat = products.find((c) => c.id === sale.productId);
                       return (
                         <div key={sale.id} className="glass rounded-2xl p-3">
                           <div className="flex items-center justify-between mb-1">
                             <div className="flex items-center gap-2">
                               <div className="w-2 h-6 rounded-full" style={{ background: cat?.color }} />
-                              <p className="font-semibold text-sm text-stone-800 dark:text-amber-50">{cat?.nameKey ? t(cat.nameKey) : cat?.name}</p>
+                              <p className="font-semibold text-sm text-stone-800 dark:text-amber-50">{cat?.name}</p>
                             </div>
                             <span className="text-[10px] text-stone-500 dark:text-amber-100/50">{t('calc.sessionN', { n: sale.sessionIndex + 1 })}</span>
                           </div>
@@ -356,13 +356,13 @@ function DayDetailDrawer({ date, onClose, onEditDay, onChanged, currency }: {
                   <h3 className="font-bold text-stone-800 dark:text-amber-50 mb-2">{t('reports.priceSessions')} ({sessions.length})</h3>
                   <div className="space-y-1.5">
                     {sessions.map((s) => {
-                      const cat = categories.find((c) => c.id === s.categoryId);
+                      const cat = products.find((c) => c.id === s.productId);
                       const unavailable = s.buyPrice == null && s.sellPrice == null;
                       return (
                         <div key={s.id} className={`glass rounded-xl p-2.5 flex items-center gap-2 text-xs ${unavailable ? 'opacity-60' : ''}`}>
                           <div className="w-2 h-4 rounded-full" style={{ background: cat?.color }} />
                           <span className="font-semibold text-stone-800 dark:text-amber-50">
-                            {cat?.nameKey ? t(cat.nameKey) : cat?.name}
+                            {cat?.name}
                             {unavailable && <span className="ml-1 text-stone-500">· {t('price.notAvailable')}</span>}
                           </span>
                           <span className="text-stone-500 dark:text-amber-100/50">· {t('calc.sessionN', { n: s.sessionIndex + 1 })}</span>
@@ -378,7 +378,7 @@ function DayDetailDrawer({ date, onClose, onEditDay, onChanged, currency }: {
 
               {day?.lastEditedAt && (
                 <p className="text-xs text-stone-500 dark:text-amber-100/50 text-center pt-2">
-                  {t('reports.lastEdited')}: {new Date(day.lastEditedAt).toLocaleString(lang === 'si' ? 'si-LK' : 'en-US')}
+                  {t('reports.lastEdited')}: {new Date(day.lastEditedAt).toLocaleString('en-US')}
                 </p>
               )}
             </div>

@@ -2,9 +2,10 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Download, Upload, AlertTriangle, Check, Clock, RefreshCw, DatabaseBackup } from 'lucide-react';
+import { ArrowLeft, Download, Upload, AlertTriangle, Check, Clock, RefreshCw, DatabaseBackup, Trash2 } from 'lucide-react';
 import {
   exportBackup, importBackup, saveSettings, useI18n,
+  saveAutoBackup, listAutoBackups, restoreAutoBackup, deleteAutoBackup,
 } from '@/lib/data-hooks-adapter';
 import { useAppToast } from './toast-provider';
 import { getSalesForDateRange, getDayRecordsForRange, getPriceSessionsForDateRange, getActiveCredits } from '@/lib/db';
@@ -22,18 +23,23 @@ export function BackupScreen({ onBack, settings, onChanged }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [stats, setStats] = useState<{ sales: number; days: number; sessions: number; credits: number } | null>(null);
+  const [autoBackups, setAutoBackups] = useState<{ id: string; at: number }[]>([]);
 
   const refreshStats = async () => {
-    const allSales = await getSalesForDateRange('1900-01-01', '2999-12-31');
-    const allDays = await getDayRecordsForRange('1900-01-01', '2999-12-31');
-    const allSessions = await getPriceSessionsForDateRange('1900-01-01', '2999-12-31');
-    const allCredits = await getActiveCredits();
+    const [allSales, allDays, allSessions, allCredits, allBackups] = await Promise.all([
+      getSalesForDateRange('1900-01-01', '2999-12-31'),
+      getDayRecordsForRange('1900-01-01', '2999-12-31'),
+      getPriceSessionsForDateRange('1900-01-01', '2999-12-31'),
+      getActiveCredits(),
+      listAutoBackups(),
+    ]);
     setStats({
       sales: allSales.length,
       days: allDays.length,
       sessions: allSessions.length,
       credits: allCredits.length,
     });
+    setAutoBackups(allBackups);
   };
 
   useEffect(() => { refreshStats(); }, []);
@@ -46,7 +52,7 @@ export function BackupScreen({ onBack, settings, onChanged }: Props) {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `eggshop-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      a.download = `shop-manager-backup-${new Date().toISOString().slice(0, 10)}.json`;
       a.click();
       URL.revokeObjectURL(url);
       await saveSettings({ lastBackupAt: Date.now() });
@@ -57,7 +63,7 @@ export function BackupScreen({ onBack, settings, onChanged }: Props) {
       const file = new File([blob], a.download, { type: 'application/json' });
       if (navigator.canShare?.({ files: [file] })) {
         try {
-          await navigator.share({ files: [file], title: 'EggShop Backup', text: t('backup.title') });
+          await navigator.share({ files: [file], title: 'Shop Manager Backup', text: t('backup.title') });
         } catch { /* cancelled */ }
       }
     } catch (e: any) {
@@ -65,6 +71,40 @@ export function BackupScreen({ onBack, settings, onChanged }: Props) {
     } finally {
       setBusy(false);
     }
+  };
+
+  const handleCreateAutoBackup = async () => {
+    setBusy(true);
+    try {
+      await saveAutoBackup();
+      await refreshStats();
+      toast({ title: t('backup.exportToast.title'), variant: 'success' });
+    } catch (e: any) {
+      toast({ title: t('toast.error'), description: e?.message, variant: 'error' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleRestoreAuto = async (id: string) => {
+    if (!confirm(t('backup.importConfirm'))) return;
+    setBusy(true);
+    try {
+      await restoreAutoBackup(id);
+      await refreshStats();
+      onChanged();
+      toast({ title: t('backup.importToast.title'), description: t('backup.importToast.desc'), variant: 'success' });
+    } catch (e: any) {
+      toast({ title: t('backup.importFailed.title'), description: e?.message, variant: 'error' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleDeleteAuto = async (id: string) => {
+    await deleteAutoBackup(id);
+    await refreshStats();
+    toast({ title: t('toast.saved'), variant: 'success' });
   };
 
   const handleImport = async (file: File) => {
@@ -137,7 +177,7 @@ export function BackupScreen({ onBack, settings, onChanged }: Props) {
           {settings.lastBackupAt && (
             <div className="mt-3 glass rounded-xl p-2.5 flex items-center gap-2 text-xs text-stone-600 dark:text-amber-100/70">
               <Clock size={12} />
-              {t('backup.lastBackup')}: {new Date(settings.lastBackupAt).toLocaleString(lang === 'si' ? 'si-LK' : 'en-US')}
+              {t('backup.lastBackup')}: {new Date(settings.lastBackupAt).toLocaleString('en-US')}
             </div>
           )}
         </motion.section>
@@ -222,6 +262,63 @@ export function BackupScreen({ onBack, settings, onChanged }: Props) {
               </>
             )}
           </button>
+        </motion.section>
+
+        {/* Auto Backups */}
+        <motion.section
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.12 }}
+          className="glass-strong rounded-3xl p-5"
+        >
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <div className="w-9 h-9 rounded-xl glass-info flex items-center justify-center text-white">
+                <Clock size={16} />
+              </div>
+              <div>
+                <h2 className="font-bold text-stone-800 dark:text-amber-50">{t('backup.autoBackups')}</h2>
+                <p className="text-xs text-stone-600 dark:text-amber-100/70">{t('backup.autoBackupsDesc')}</p>
+              </div>
+            </div>
+            <button
+              onClick={handleCreateAutoBackup}
+              disabled={busy}
+              className="glass-info rounded-xl px-3 py-2 text-xs font-bold text-white flex items-center gap-1 active:scale-95 transition-transform disabled:opacity-60"
+            >
+              <DatabaseBackup size={12} /> {t('common.add')}
+            </button>
+          </div>
+          {autoBackups.length === 0 ? (
+            <p className="text-xs text-stone-500 dark:text-amber-100/60 text-center py-4">{t('backup.noAutoBackups')}</p>
+          ) : (
+            <div className="space-y-1.5">
+              {autoBackups.map((b) => (
+                <div key={b.id} className="glass rounded-xl p-2.5 flex items-center gap-2">
+                  <Clock size={12} className="text-stone-500 flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold text-stone-800 dark:text-amber-50">
+                      {new Date(b.at).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => handleRestoreAuto(b.id)}
+                    disabled={busy}
+                    className="glass-success rounded-lg px-2.5 py-1 text-[10px] font-bold text-white active:scale-95 transition-transform disabled:opacity-60"
+                  >
+                    {t('backup.restore')}
+                  </button>
+                  <button
+                    onClick={() => handleDeleteAuto(b.id)}
+                    className="glass-danger rounded-lg w-6 h-6 flex items-center justify-center text-white active:scale-90 transition-transform"
+                    aria-label={t('common.delete')}
+                  >
+                    <Trash2 size={10} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </motion.section>
 
         {/* Info */}

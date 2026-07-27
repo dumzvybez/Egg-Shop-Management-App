@@ -1,13 +1,13 @@
 /// <reference lib="webworker" />
 
 /**
- * Service Worker for බිත්තර කඩේ
+ * Service Worker for Shop Manager
  * - Pre-caches app shell on install
  * - Network-first for HTML/JS/CSS (so updates are picked up)
  * - Cache-first for static assets (icons, fonts, images)
  */
 
-const VERSION = 'v1.1.0';
+const VERSION = 'v3.0.0';
 const SHELL_CACHE = `shell-${VERSION}`;
 const ASSET_CACHE = `assets-${VERSION}`;
 const SHELL_URLS = [
@@ -77,7 +77,7 @@ self.addEventListener('fetch', (event) => {
             const root = await caches.match('/');
             if (root) return root;
           }
-          return new Response('අන්තර්ජාලය නොමැති විට මෙම පිටුව ලබා ගත නොහැක.', {
+          return new Response('This page is not available when offline.', {
             status: 503,
             headers: { 'Content-Type': 'text/plain; charset=utf-8' },
           });
@@ -102,7 +102,7 @@ self.addEventListener('fetch', (event) => {
   );
 });
 
-// Optional: daily reminder via push (no-op self-notification, scheduled client-side)
+// Optional: skip-waiting message from page
 self.addEventListener('message', (event) => {
   if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting();
 });

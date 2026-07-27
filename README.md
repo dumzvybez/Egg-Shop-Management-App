@@ -1,353 +1,312 @@
-# 🥚 EggShop
+# 🛒 Shop Manager
 
 <p align="center">
-  <img src="./public/icons/icon-512.png" alt="EggShop Logo" width="140"/>
-
-# 🥚 EggShop
-
-### Modern Offline-First Egg Shop Management System
-
-A beautiful Progressive Web App designed for egg shop management.
-
-Manage inventory, suppliers, customer credit, expenses, reports, daily sales, and business operations — all in one simple application.
-
-🌐 **Live Demo**  
-https://eggshop-management.vercel.app/
-
+  <strong>A modern, offline-first Progressive Web App for small-business management.</strong>
+  <br><br>
+  Track sales, inventory, suppliers, customer credit, expenses and reports — all in one clean, simple application.
 </p>
 
 <p align="center">
 
-![Version](https://img.shields.io/badge/version-v2.5-2563eb?style=for-the-badge)
-![PWA](https://img.shields.io/badge/PWA-Ready-22c55e?style=for-the-badge)
-![Offline](https://img.shields.io/badge/Offline-First-22c55e?style=for-the-badge)
-![Next.js](https://img.shields.io/badge/Next.js-16-black?style=for-the-badge)
-![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?style=for-the-badge)
-![MIT License](https://img.shields.io/badge/License-MIT-success?style=for-the-badge)
+![Version](https://img.shields.io/badge/version-v3.0.0-blue)
+![PWA](https://img.shields.io/badge/PWA-Ready-success)
+![Offline](https://img.shields.io/badge/Offline-First-success)
+![Next.js](https://img.shields.io/badge/Next.js-16-black)
+![TypeScript](https://img.shields.io/badge/TypeScript-5-blue)
+![License](https://img.shields.io/badge/License-MIT-green)
 
 </p>
 
 ---
 
-# ✨ Overview
+## ✨ Overview
 
-EggShop is a modern **offline-first Progressive Web App** built to simplify the day-to-day management of a egg shop.
+**Shop Manager** is a generic, professional small-business management system designed for daily shop use. It works for grocery shops, convenience stores, snack shops, retail shops, egg shops, and many other small-business types.
 
-Designed with simplicity in mind, it allows users to manage inventory, suppliers, customer credit, sales, expenses, reports, and profits from one clean interface without requiring an internet connection.
+It helps shop owners manage:
 
-The application focuses on speed, ease of use, and reliability for everyday business operations.
+- 📦 **Products & Inventory** — full CRUD, opening stock, reorder thresholds, low-stock alerts, stock movement history
+- 🛒 **Sales** — multi-line transactions, automatic profit calculation, stock deduction
+- 🚚 **Suppliers** — contacts, multi-line purchases, partial payments, outstanding balances
+- 👥 **Customer Credit** — multi-line credit sales, partial payments, active/paid history
+- 💰 **Profit** — daily, monthly and yearly reports with gross and net profit
+- 🧾 **Expenses** — operating costs with daily and monthly breakdowns
+- 📊 **Reports** — daily, monthly and printable PDF reports with section selection
+- 🌙 **Themes** — Dark (default) and Light
+- 📱 **PWA** — installable, fully offline, install-to-home-screen
+
+Everything works **completely offline**, making it perfect for everyday shop use in areas with unreliable connectivity.
 
 ---
 
-# 🚀 Features
+## 🚀 Features
 
 | Module | Description |
-|---------|-------------|
-| 🥚 Daily Sales | Daily price management, multiple price sessions and profit calculation |
-| 📦 Inventory | Automatic stock management with live inventory tracking |
-| 🚚 Suppliers | Supplier profiles, purchases, payment history and outstanding balances |
-| 👥 Customer Credit | Manage customers who pay later with payment history |
-| 💰 Profit | Daily, monthly and yearly profit summaries |
-| 🧾 Expenses | Record additional shop expenses and calculate real business profit |
-| 📊 Reports | Interactive reports with PDF export |
-| 🌙 Themes | Beautiful Dark & Light themes |
-| 🌐 Languages | Sinhala & English support |
-| 📱 PWA | Installable and fully offline |
+|--------|-------------|
+| 📊 Dashboard | Cash Available, Gross Profit, Net Profit, Supplier Due, Customer Due, Today's Sales, Stock Alerts, Business Health, Monthly Comparison, Top Selling Product |
+| 🛒 Sales | Multi-line sales, automatic profit calc, stock validation, price sessions |
+| 📦 Inventory | Full product CRUD, opening stock, reorder thresholds, low-stock warnings, movement history |
+| 🚚 Suppliers | Supplier profiles, multi-line purchases, partial payments, outstanding balances, payment distribution |
+| 👥 Credit | Customer credit, multi-line items, partial payments, active/paid history |
+| 💰 Reports | Daily, monthly, PDF reports with section selection |
+| 🧾 Expenses | Operating costs (transport, electricity, bags, rent, other), 7-day breakdown, net profit impact |
+| 💥 Damaged Stock | Damage/loss tracking with auto inventory deduction and profit impact |
+| 📱 PWA | Installable, offline-first, install on Android/iOS |
+| 🔒 Privacy | All data stored locally on device — no servers, no tracking |
 
 ---
 
-# 🌟 Highlights
+## 📱 Main Features
 
-- ✅ Offline First
-- ✅ Installable PWA
-- ✅ Beautiful Modern UI
-- ✅ Liquid Glass Design
-- ✅ Sinhala & English
-- ✅ Local Database
-- ✅ Fast Performance
-- ✅ Mobile Optimized
-- ✅ No Login Required
-- ✅ Automatic Calculations
-- ✅ Professional Reports
+### 📊 Dashboard (Business Command Center)
+- Cash Available (sales received minus expenses)
+- Gross Profit and Net Profit
+- Supplier Due and Customer Due (kept separate from cash)
+- Today's Sales with yesterday comparison
+- Business Health card with vs-yesterday and vs-last-month comparisons
+- Stock Alerts (out-of-stock + low-stock items)
+- Top Selling Product
+- Monthly Comparison chart
+- Last 7 days profit chart
 
----
+### 🛒 Sales Screen
+- Multi-line sale transactions
+- Live profit calculation per line
+- Stock validation (prevents overselling)
+- Editable transactions
+- Price session tracking (each price change creates a new session)
+- Damage/loss recording in the same screen
 
-# 📱 Main Modules
+### 📦 Inventory
+- Full product CRUD (add/edit/delete)
+- Per-product: name, category, unit, opening stock, purchase price, selling price, reorder threshold, color
+- Stock level badges (out/low/medium/high)
+- Stock movement history (added/sold/damaged/returned)
+- Low-stock and out-of-stock alerts
 
-## 🥚 Daily Business
+### 🚚 Suppliers
+- Supplier list with name, phone, notes
+- Per-supplier profile with outstanding balance
+- Multi-line purchases (single delivery with multiple product types)
+- Partial payments distributed oldest-first across purchases
+- Purchase history grouped by delivery
+- Pie charts: item breakdown and payment status
+- Lifetime statistics
 
-- Daily egg price management
-- Multiple price sessions
-- Daily sales calculation
-- Automatic profit calculation
-- Edit previous records
-- Daily history
-- Damaged egg tracking
+### 👥 Customer Credit
+- Multi-line credit sales (customer takes multiple items, pays later)
+- Partial payments with full audit trail
+- Active and paid tabs
+- Quick "Mark Fully Paid" button
 
----
+### 💰 Reports
+- Daily reports (last 90 days, search + filter by month)
+- Monthly reports (last 12 months, best/worst day, per-product breakdown, charts)
+- PDF reports (configurable sections, professional layout)
+- Month-over-month comparisons
 
-## 📦 Inventory
+### 🧾 Expenses
+- Five fixed categories: Transport, Electricity, Bags, Rent, Other
+- Monthly total and net-profit calculation
+- 7-day breakdown bar chart
+- Real-time gross vs net profit display
 
-- Live stock management
-- Automatic stock increase from supplier purchases
-- Automatic stock deduction after sales
-- Stock movement history
-- Low stock warnings
-- Out of stock prevention
-- Dashboard stock overview
-
----
-
-## 🚚 Supplier Management
-
-- Supplier profiles
-- Purchase history
-- Multiple egg types per purchase
-- Partial payment support
-- Outstanding balances
-- Paid history
-- Supplier statistics
-- Charts & summaries
-
----
-
-## 👥 Customer Credit
-
-- Customer list
-- Credit management
-- Payment history
-- Outstanding balances
-- Partial payments
-- Dashboard reminder cards
+### 💥 Damaged Stock
+- Record damaged/lost items directly from the Sales screen
+- Auto-decreases inventory
+- Affects gross profit, net profit, and monthly reports
+- Visible in daily, monthly and PDF reports
 
 ---
 
-## 💰 Reports
+## 🛠 Tech Stack
 
-- Daily reports
-- Monthly reports
-- Yearly summaries
-- Charts & analytics
-- PDF export
-- Search & filtering
-
----
-
-## 🧾 Expenses
-
-- Additional business expenses
-- Monthly expense tracking
-- Expense categories
-- Real business profit calculation
+- **Next.js 16** (App Router, webpack production build)
+- **TypeScript 5** (strict)
+- **Tailwind CSS v4** (custom glassmorphism design system)
+- **Framer Motion 12** (animations)
+- **Recharts 2** (charts)
+- **IndexedDB** via `idb` (local offline storage)
+- **Service Worker** (PWA offline support)
 
 ---
 
-# 📸 Screenshots
-
-<p align="center">
-
-<img src="./screenshots/dashboard.png" width="30%" alt="Dashboard"/>
-<img src="./screenshots/daily-sales.png" width="30%" alt="Daily Sales"/>
-<img src="./screenshots/inventory.png" width="30%" alt="Inventory"/>
-
-</p>
-
-<p align="center">
-<b>🏠 Dashboard</b>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-<b>🥚 Daily Sales</b>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-<b>📦 Inventory</b>
-</p>
-
-<br>
-
-<p align="center">
-
-<img src="./screenshots/suppliers.png" width="30%" alt="Suppliers"/>
-<img src="./screenshots/customer-credit.png" width="30%" alt="Customer Credit"/>
-<img src="./screenshots/reports.png" width="30%" alt="Reports"/>
-
-</p>
-
-<p align="center">
-<b>🚚 Suppliers</b>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-<b>👥 Customer Credit</b>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-<b>📊 Reports</b>
-</p>
-
-<br>
-
-<p align="center">
-
-<img src="./screenshots/pdf-report.png" width="30%" alt="PDF Report"/>
-<img src="./screenshots/expenses.png" width="30%" alt="Expenses"/>
-<img src="./screenshots/settings.png" width="30%" alt="Settings"/>
-
-</p>
-
-<p align="center">
-<b>📄 PDF Reports</b>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-<b>🧾 Expenses</b>
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-<b>⚙️ Settings</b>
-</p>
-
-<br>
-
-<p align="center">
-
-<img src="./screenshots/onboarding.png" width="35%" alt="Onboarding"/>
-
-</p>
-
-<p align="center">
-<b>🚀 First-Time Onboarding</b>
-</p>
-
----
-
-# 🛠 Tech Stack
-
-- Next.js 16
-- TypeScript
-- Tailwind CSS
-- Framer Motion
-- IndexedDB
-- Recharts
-- Service Worker
-- Progressive Web App (PWA)
-
----
-
-# 📦 Installation
+## 📦 Installation
 
 ```bash
-git clone https://github.com/dumzvybez/Egg-shop-management-app.git
+git clone https://github.com/dumzvybez/Egg-Shop-Management-App.git
 
-cd Egg-shop-management-app
+cd Egg-Shop-Management-App
 
 npm install
 
 npm run dev
 ```
 
-Open:
+Open [http://localhost:3000](http://localhost:3000)
 
-```
-http://localhost:3000
+### Production build
+
+```bash
+npm run build
+npm start
 ```
 
 ---
 
-# 📱 Progressive Web App
+## 📱 Progressive Web App
 
-EggShop can be installed like a native mobile application.
+Shop Manager is fully installable as a Progressive Web App.
 
-Features include:
-
-- ✅ Works completely offline
-- ✅ Installable on Android
+Features:
+- ✅ Offline support (works without internet)
+- ✅ Install on Android (Chrome / Edge)
+- ✅ Install on iOS (Safari → Share → Add to Home Screen)
+- ✅ Local data storage (survives app close and phone restart)
 - ✅ Fast loading
-- ✅ Local data storage
-- ✅ Automatic updates
 - ✅ Theme persistence
-- ✅ Language persistence
+- ✅ Real URL navigation (browser back/forward works)
 
 ---
 
-# 📂 Project Structure
+## 📂 Project Structure
 
 ```
-Egg-shop-management-app/
-│
+shop-manager/
 ├── public/
-├── screenshots/
+│   ├── manifest.webmanifest
+│   ├── sw.js
+│   ├── robots.txt
+│   └── icons/
 ├── src/
-├── components/
-├── hooks/
-├── lib/
-├── styles/
-│
-├── README.md
+│   ├── app/
+│   │   ├── globals.css         # Tailwind v4 design system
+│   │   ├── layout.tsx          # Root layout, fonts, metadata
+│   │   └── page.tsx            # URL-routed SPA shell
+│   ├── lib/
+│   │   ├── db.ts               # IndexedDB data layer
+│   │   ├── i18n.ts             # English-only dictionary
+│   │   ├── sinhala.ts          # Date/number/currency formatters
+│   │   ├── use-data.ts         # React hooks for data
+│   │   ├── use-theme.ts        # Theme sync
+│   │   ├── i18n-context.tsx    # I18n provider
+│   │   ├── data-hooks.ts       # Re-export hub
+│   │   └── data-hooks-adapter.ts
+│   └── components/
+│       ├── dashboard.tsx
+│       ├── profit-calculator-screen.tsx   # Sales screen
+│       ├── inventory-screen.tsx
+│       ├── suppliers-screen.tsx
+│       ├── supplier-profile-screen.tsx
+│       ├── credit-screen.tsx
+│       ├── expense-screen.tsx
+│       ├── daily-reports-screen.tsx
+│       ├── monthly-reports-screen.tsx
+│       ├── pdf-report-screen.tsx
+│       ├── backup-screen.tsx
+│       ├── settings-screen.tsx
+│       ├── edit-history-screen.tsx
+│       ├── setup-wizard.tsx
+│       ├── bottom-nav.tsx
+│       ├── footer.tsx
+│       ├── toast-provider.tsx
+│       ├── missed-days-modal.tsx
+│       └── month-end-reminder-modal.tsx
 ├── package.json
-└── tsconfig.json
+├── next.config.ts
+├── tsconfig.json
+└── README.md
 ```
 
 ---
 
-# 🌍 Languages
+## 🔒 Privacy
 
-- 🇱🇰 Sinhala
-- 🇬🇧 English
+**All your data stays on your device.** Shop Manager does NOT:
+- Send any data to any server
+- Use analytics or tracking
+- Require an account or login
+- Make any network calls (except for Google Fonts on first load)
 
----
-
-# ❤️ Built For
-
-EggShop was created to help small family egg shops manage their daily business more easily through a simple, modern, and offline-first application.
-
-The focus is on keeping business management straightforward while providing the tools needed for inventory, supplier management, customer credit, reports, and profit tracking.
+Use the **Backup & Restore** screen to export your data as a JSON file or set up automatic backups (latest 5 kept on device).
 
 ---
 
-# 🚀 Roadmap
+## 🌐 Developer
 
-### ✅ Completed
+**Dumindu Wanasinghe** — Founder & Developer
 
-- Daily Sales
-- Inventory Management
-- Supplier Management
-- Customer Credit
-- Reports
-- PDF Export
-- Expense Tracking
-- PWA Support
-- Offline Storage
-- Theme Support
-- Language Support
+[![GitHub](https://img.shields.io/badge/GitHub-dumzvybez-black?logo=github)](https://github.com/dumzvybez)
+[![Portfolio](https://img.shields.io/badge/Portfolio-dumindu.vercel.app-blue?logo=vercel)](https://dumindu.vercel.app)
+[![YouTube](https://img.shields.io/badge/YouTube-@DuminduWanasinghe-red?logo=youtube)](https://www.youtube.com/@DuminduWanasinghe)
 
-### 🔜 Planned
-
-- Backup & Restore
-- Excel Export
-- Advanced Analytics
-- Better Notifications
-- Performance Improvements
-- UI/UX Enhancements
+Repository: [github.com/dumzvybez/Egg-Shop-Management-App](https://github.com/dumzvybez/Egg-Shop-Management-App)
 
 ---
 
-# 👨‍💻 Developer
+## 📸 Screenshots
 
-**Dumindu Wanasinghe**
+<table>
+  <tr>
+    <td width="50%" align="center"><b>Dashboard (Dark)</b></td>
+    <td width="50%" align="center"><b>Dashboard (Light)</b></td>
+  </tr>
+  <tr>
+    <td width="50%" align="center" valign="top">
+      <img src="https://placehold.co/600x1200/0c0a09/fbbf24?text=Dashboard%0A%0ADark%20Theme%0A%0ACash%20%C2%B7%20Profit%0ADues%20%C2%B7%20Alerts&font=montserrat" alt="Dashboard dark" width="100%" />
+    </td>
+    <td width="50%" align="center" valign="top">
+      <img src="https://placehold.co/600x1200/fffbeb/f59e0b?text=Dashboard%0A%0ALight%20Theme%0A%0ACash%20%C2%B7%20Profit%0ADues%20%C2%B7%20Alerts&font=montserrat" alt="Dashboard light" width="100%" />
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center"><b>Sales Screen</b></td>
+    <td width="50%" align="center"><b>Inventory</b></td>
+  </tr>
+  <tr>
+    <td width="50%" align="center" valign="top">
+      <img src="https://placehold.co/600x1200/0c0a09/22d3ee?text=Sales%0A%0AMulti-line%0AProfit%20calc%0AStock%20check&font=montserrat" alt="Sales" width="100%" />
+    </td>
+    <td width="50%" align="center" valign="top">
+      <img src="https://placehold.co/600x1200/0c0a09/16a34a?text=Inventory%0A%0AProducts%0ALow%20stock%0AMovement%20history&font=montserrat" alt="Inventory" width="100%" />
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center"><b>Supplier Profile</b></td>
+    <td width="50%" align="center"><b>Customer Credit</b></td>
+  </tr>
+  <tr>
+    <td width="50%" align="center" valign="top">
+      <img src="https://placehold.co/600x1200/0c0a09/9333ea?text=Supplier%0A%0ABalance%0APurchases%0APayments&font=montserrat" alt="Supplier" width="100%" />
+    </td>
+    <td width="50%" align="center" valign="top">
+      <img src="https://placehold.co/600x1200/0c0a09/dc2626?text=Credit%0A%0AActive%20/%20Paid%0APartial%20payments&font=montserrat" alt="Credit" width="100%" />
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center"><b>Reports & Charts</b></td>
+    <td width="50%" align="center"><b>PDF Report</b></td>
+  </tr>
+  <tr>
+    <td width="50%" align="center" valign="top">
+      <img src="https://placehold.co/600x1200/0c0a09/f59e0b?text=Reports%0A%0ADaily%20/%20Monthly%0ABar%20+%20Pie%20charts&font=montserrat" alt="Reports" width="100%" />
+    </td>
+    <td width="50%" align="center" valign="top">
+      <img src="https://placehold.co/600x1200/0c0a09/ef4444?text=PDF%20Report%0A%0ASection%20picker%0AProfessional%20layout&font=montserrat" alt="PDF" width="100%" />
+    </td>
+  </tr>
+</table>
 
-🌐 **Live Demo**  
-https://eggshop-management.vercel.app/
-
-🐙 **GitHub Profile**  
-https://github.com/dumzvybez
-
-📦 **Project Repository**  
-https://github.com/dumzvybez/Egg-shop-management-app
+> Replace the placeholder images above with real screenshots of your deployed app. Drop your PNGs into `docs/screenshots/` and update the `<img src="...">` paths.
 
 ---
 
-# ⭐ Support
+## ⭐ Support
 
 If you found this project useful, consider giving it a ⭐ on GitHub.
 
-It helps the project grow and motivates future improvements.
-
 ---
 
-<p align="center">
+## 📄 License
 
-Made with ❤️ using Next.js & TypeScript
-
-**EggShop v2.5**
-
-</p>
+MIT License — free for personal and commercial use.

@@ -1,15 +1,14 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { LayoutDashboard, CalendarDays, Tag, Truck, FileText, Receipt, Calendar } from 'lucide-react';
+import { LayoutDashboard, ShoppingBag, Truck, Receipt, FileText, Tag } from 'lucide-react';
 import { useI18n } from '@/lib/i18n-context';
 
-export type NavView = 'dashboard' | 'today' | 'price' | 'credit' | 'reports' | 'suppliers' | 'expenses' | 'calendar';
+export type NavView = 'dashboard' | 'today' | 'credit' | 'reports' | 'suppliers' | 'expenses';
 
 type Props = {
   active: NavView;
   onChange: (view: NavView) => void;
-  /** Show a small red badge dot when there are active credit records. */
   creditBadge?: number;
 };
 
@@ -18,10 +17,10 @@ export function BottomNav({ active, onChange, creditBadge }: Props) {
 
   const items: { id: NavView; label: string; icon: React.ReactNode }[] = [
     { id: 'dashboard', label: t('nav.dashboard'), icon: <LayoutDashboard size={20} /> },
-    { id: 'today', label: t('nav.today'), icon: <CalendarDays size={20} /> },
+    { id: 'today', label: t('nav.today'), icon: <ShoppingBag size={20} /> },
     { id: 'suppliers', label: t('nav.suppliers'), icon: <Truck size={20} /> },
     { id: 'credit', label: t('nav.credit'), icon: <Receipt size={20} /> },
-    { id: 'expenses', label: t('expense.title'), icon: <Tag size={20} /> },
+    { id: 'expenses', label: t('nav.expenses'), icon: <Tag size={20} /> },
     { id: 'reports', label: t('nav.reports'), icon: <FileText size={20} /> },
   ];
 

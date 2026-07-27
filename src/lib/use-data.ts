@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   getSettings, saveSettings,
-  getCategories,
+  getProducts, getCategories,
   getPriceSessionsForDate, savePriceSession,
   getSalesForDate, saveSale, updateSale, deleteSale,
   getDayRecord, getAllDayRecords, setDayClosed, recalcDay,
@@ -18,9 +18,9 @@ import {
   getPurchasesForSupplier, getPurchasesGroupedByGroup, saveSupplierPurchase, deleteSupplierPurchase,
   getPaymentsForSupplier, saveSupplierPayment,
   getSupplierSummary,
-  getAllInventory, getInventoryForCategory,
+  getAllInventory, getInventoryForCategory, getInventoryForProduct,
   todayStr,
-  type Settings, type EggCategory, type PriceSession, type Sale, type DayRecord, type EditHistoryEntry, type CreditRecord, type CreditPayment,
+  type Settings, type Product, type EggCategory, type PriceSession, type Sale, type DayRecord, type EditHistoryEntry, type CreditRecord, type CreditPayment,
   type Supplier, type SupplierPurchase, type SupplierPayment, type SupplierSummary,
 } from './db';
 
@@ -45,19 +45,24 @@ export function useSettings() {
   return { settings, loading, update, refresh };
 }
 
-export function useCategories() {
-  const [categories, setCategories] = useState<EggCategory[]>([]);
+export function useProducts() {
+  const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
-    const c = await getCategories();
-    setCategories(c);
+    const p = await getProducts();
+    setProducts(p);
     setLoading(false);
   }, []);
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  return { categories, loading, refresh };
+  return { products, loading, refresh };
+}
+
+/** Legacy alias. */
+export function useCategories() {
+  return useProducts();
 }
 
 export function useDayData(date: string) {
@@ -67,14 +72,14 @@ export function useDayData(date: string) {
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
-    const [d, s, p] = await Promise.all([
+    const [d, s, ps] = await Promise.all([
       getDayRecord(date),
       getSalesForDate(date),
       getPriceSessionsForDate(date),
     ]);
     setDay(d);
     setSales(s);
-    setSessions(p);
+    setSessions(ps);
     setLoading(false);
   }, [date]);
 
@@ -119,10 +124,7 @@ export function useCredits() {
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
-    const [a, p] = await Promise.all([
-      getActiveCredits(),
-      getPaidCredits(),
-    ]);
+    const [a, p] = await Promise.all([getActiveCredits(), getPaidCredits()]);
     setActive(a);
     setPaid(p);
     setLoading(false);
@@ -151,7 +153,7 @@ export function useSuppliers() {
 export function useSupplierData(supplierId: string | null) {
   const [summary, setSummary] = useState<SupplierSummary | null>(null);
   const [purchases, setPurchases] = useState<SupplierPurchase[]>([]);
-  const [purchaseGroups, setPurchaseGroups] = useState<{ groupId: string; date: string; at: number; items: SupplierPurchase[]; totalCost: number; totalEggs: number; totalPaid: number; totalRemaining: number; allPaid: boolean }[]>([]);
+  const [purchaseGroups, setPurchaseGroups] = useState<any[]>([]);
   const [payments, setPayments] = useState<SupplierPayment[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -164,15 +166,15 @@ export function useSupplierData(supplierId: string | null) {
       setLoading(false);
       return;
     }
-    const [sum, p, groups, pm] = await Promise.all([
+    const [s, _p, g, pm] = await Promise.all([
       getSupplierSummary(supplierId),
       getPurchasesForSupplier(supplierId),
       getPurchasesGroupedByGroup(supplierId),
       getPaymentsForSupplier(supplierId),
     ]);
-    setSummary(sum);
-    setPurchases(p);
-    setPurchaseGroups(groups);
+    setSummary(s);
+    setPurchases(_p);
+    setPurchaseGroups(g);
     setPayments(pm);
     setLoading(false);
   }, [supplierId]);
@@ -180,8 +182,15 @@ export function useSupplierData(supplierId: string | null) {
   useEffect(() => { refresh(); }, [refresh]);
 
   return {
-    summary, purchases, purchaseGroups, payments, loading, refresh,
-    saveSupplierPurchase, deleteSupplierPurchase, saveSupplierPayment,
+    summary,
+    purchases,
+    purchaseGroups,
+    payments,
+    loading,
+    refresh,
+    saveSupplierPurchase,
+    deleteSupplierPurchase,
+    saveSupplierPayment,
   };
 }
 
@@ -197,5 +206,5 @@ export function useInventory() {
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  return { inventory, loading, refresh, getInventoryForCategory };
+  return { inventory, loading, refresh, getInventoryForCategory, getInventoryForProduct };
 }

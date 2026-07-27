@@ -26,7 +26,7 @@ export function MonthlyReportsScreen({ onBack, onOpenDaily, onOpenPdf, currency 
   const [month, setMonth] = useState(`${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`);
   const [summary, setSummary] = useState<MonthSummary | null>(null);
   const [days, setDays] = useState<DayRecord[]>([]);
-  const [categories, setCategories] = useState<EggCategory[]>([]);
+  const [products, setCategories] = useState<EggCategory[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -45,7 +45,7 @@ export function MonthlyReportsScreen({ onBack, onOpenDaily, onOpenPdf, currency 
   }, [month]);
 
   const monthOptions = useMemo(() => {
-    const monthsArr = lang === 'en' ? ENGLISH_MONTHS : SINHALA_MONTHS;
+    const monthsArr = ENGLISH_MONTHS;
     const opts: { value: string; label: string }[] = [];
     const tDate = new Date();
     for (let i = 0; i < 12; i++) {
@@ -67,12 +67,12 @@ export function MonthlyReportsScreen({ onBack, onOpenDaily, onOpenPdf, currency 
     }));
 
   const pieData = (summary?.perCategory || [])
-    .filter((c) => c.totalEggs > 0)
+    .filter((c) => c.totalItems > 0)
     .map((c) => {
-      const cat = categories.find((x) => x.id === c.categoryId);
+      const cat = products.find((x) => x.id === c.productId);
       return {
-        name: cat?.nameKey ? (lang === 'en' ? cat.nameKey.replace('cat.', '').replace('-', ' ') : (cat?.name || c.categoryId)) : (cat?.name || c.categoryId),
-        value: c.totalEggs,
+        name: cat?.name || c.productId,
+        value: c.totalItems,
         color: cat?.color || '#f59e0b',
       };
     });
@@ -153,7 +153,7 @@ export function MonthlyReportsScreen({ onBack, onOpenDaily, onOpenPdf, currency 
               <h2 className="font-bold text-stone-800 dark:text-amber-50 mb-3">{t('monthly.summary', { month: formatMonth(month, lang) })}</h2>
               <div className="grid grid-cols-2 gap-3 mb-3">
                 <BigStat icon={<TrendingUp size={16} />} label={t('monthly.totalProfit')} value={formatCurrency(summary.totalProfit, currency)} variant={summary.totalProfit < 0 ? 'danger' : 'success'} />
-                <BigStat icon={<Egg size={16} />} label={t('monthly.totalEggs')} value={`${formatNumber(summary.totalEggs)} ${lang === 'si' ? 'ක්' : ''}`.trim()} variant="primary" />
+                <BigStat icon={<Egg size={16} />} label={t('monthly.totalEggs')} value={`${formatNumber(summary.totalItems)} $''`.trim()} variant="primary" />
                 <BigStat icon={<Wallet size={16} />} label={t('reports.totalSell')} value={formatCurrency(summary.totalSell, currency)} variant="info" />
                 <BigStat icon={<Wallet size={16} />} label={t('reports.totalBuy')} value={formatCurrency(summary.totalBuy, currency)} variant="muted" />
               </div>
@@ -254,7 +254,7 @@ export function MonthlyReportsScreen({ onBack, onOpenDaily, onOpenPdf, currency 
                       </Pie>
                       <Tooltip
                         contentStyle={{ background: 'rgba(255,255,255,0.95)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: '12px', fontSize: '12px' }}
-                        formatter={(v: any, n: any) => [`${formatNumber(Number(v))} ${lang === 'si' ? 'බිත්තර' : 'eggs'}`, n]}
+                        formatter={(v: any, n: any) => [`${formatNumber(Number(v))} $'eggs'`, n]}
                       />
                       <Legend wrapperStyle={{ fontSize: 11 }} iconType="circle" />
                     </PieChart>
@@ -264,7 +264,7 @@ export function MonthlyReportsScreen({ onBack, onOpenDaily, onOpenPdf, currency 
             )}
 
             {/* Per-category table */}
-            {summary.perCategory.filter(c => c.totalEggs > 0).length > 0 && (
+            {summary.perCategory.filter(c => c.totalItems > 0).length > 0 && (
               <motion.section
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -273,14 +273,14 @@ export function MonthlyReportsScreen({ onBack, onOpenDaily, onOpenPdf, currency 
               >
                 <h3 className="font-bold text-stone-800 dark:text-amber-50 mb-3">{t('monthly.categoryDetail')}</h3>
                 <div className="space-y-2">
-                  {summary.perCategory.filter(c => c.totalEggs > 0).map((c) => {
-                    const cat = categories.find((x) => x.id === c.categoryId);
+                  {summary.perCategory.filter(c => c.totalItems > 0).map((c) => {
+                    const cat = products.find((x) => x.id === c.productId);
                     return (
-                      <div key={c.categoryId} className="glass rounded-xl p-3 flex items-center gap-3">
+                      <div key={c.productId} className="glass rounded-xl p-3 flex items-center gap-3">
                         <div className="w-2 h-8 rounded-full" style={{ background: cat?.color }} />
                         <div className="flex-1">
-                          <p className="font-semibold text-sm text-stone-800 dark:text-amber-50">{cat?.nameKey ? t(cat.nameKey) : cat?.name}</p>
-                          <p className="text-xs text-stone-600 dark:text-amber-100/70">{formatNumber(c.totalEggs)} {lang === 'si' ? 'බිත්තර' : 'eggs'}</p>
+                          <p className="font-semibold text-sm text-stone-800 dark:text-amber-50">{cat?.name}</p>
+                          <p className="text-xs text-stone-600 dark:text-amber-100/70">{formatNumber(c.totalItems)} 'eggs'</p>
                         </div>
                         <p className={`font-bold text-sm ${c.totalProfit < 0 ? 'text-red-600 dark:text-red-400' : 'text-green-700 dark:text-green-400'}`}>
                           {formatCurrency(c.totalProfit, currency)}

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { ArrowLeft, FileBarChart, Share2, Printer, Calendar, ChevronDown } from 'lucide-react';
+import { ArrowLeft, FileBarChart, Share2, Printer, Calendar, ChevronDown, Check } from 'lucide-react';
 import {
   getDayRecordsForRange, getSalesForDateRange, getCategories, getAllSupplierPurchasesForDateRange, getAllInventory,
   getSupplier, useI18n,
@@ -30,10 +30,28 @@ export function PdfReportScreen({ onBack, settings }: Props) {
   const [sales, setSales] = useState<Sale[]>([]);
   const [supplierPurchases, setSupplierPurchases] = useState<SupplierPurchase[]>([]);
   const [inventory, setInventory] = useState<Record<string, number>>({});
-  const [categories, setCategories] = useState<EggCategory[]>([]);
+  const [products, setCategories] = useState<EggCategory[]>([]);
   const [loading, setLoading] = useState(true);
   const [showMonthPicker, setShowMonthPicker] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState<string>('');
+
+  // PDF section selection (NEW v3)
+  const [showSectionPicker, setShowSectionPicker] = useState(false);
+  const [sections, setSections] = useState<{
+    sales: boolean;
+    supplierPurchases: boolean;
+    inventory: boolean;
+    expenses: boolean;
+    credit: boolean;
+    damage: boolean;
+  }>({
+    sales: true,
+    supplierPurchases: true,
+    inventory: true,
+    expenses: true,
+    credit: true,
+    damage: true,
+  });
 
   // Build range presets (no "last month" — replaced by month picker)
   useEffect(() => {
@@ -72,10 +90,21 @@ export function PdfReportScreen({ onBack, settings }: Props) {
       setSales(s);
       setSupplierPurchases(sp);
       setInventory(inv);
+      // Also load expenses, credits, damages for new sections
+      const { getExpensesForDateRange, getActiveCredits, getDamagesForDateRange } = await import('@/lib/db');
+      const [exp, cred, dmg] = await Promise.all([
+        getExpensesForDateRange(selectedRange.start, selectedRange.end),
+        getActiveCredits(),
+        getDamagesForDateRange(selectedRange.start, selectedRange.end),
+      ]);
+      (window as any).__pdfExpenses = exp;
+      (window as any).__pdfCredits = cred;
+      (window as any).__pdfDamages = dmg;
+      (window as any).__pdfSections = sections;
       setCategories(c);
       setLoading(false);
     })();
-  }, [selectedRange]);
+  }, [selectedRange, sections]);
 
   // Aggregate stats — compute from BOTH dayRecords AND sales for accuracy.
   // DayRecords may be stale if recalcDay didn't run, so we use sales as
@@ -115,7 +144,7 @@ export function PdfReportScreen({ onBack, settings }: Props) {
 
   // Month picker options (last 12 months)
   const monthOptions = useMemo(() => {
-    const monthsArr = lang === 'en' ? ENGLISH_MONTHS : SINHALA_MONTHS;
+    const monthsArr = ENGLISH_MONTHS;
     const opts: { value: string; label: string }[] = [];
     const tDate = new Date();
     for (let i = 0; i < 12; i++) {
@@ -130,7 +159,7 @@ export function PdfReportScreen({ onBack, settings }: Props) {
     const [y, m] = monthValue.split('-').map(Number);
     const start = `${y}-${String(m).padStart(2, '0')}-01`;
     const end = `${y}-${String(m).padStart(2, '0')}-31`; // safe — no month has >31 days
-    const monthsArr = lang === 'en' ? ENGLISH_MONTHS : SINHALA_MONTHS;
+    const monthsArr = ENGLISH_MONTHS;
     const label = `${monthsArr[m - 1]} ${y}`;
     const range: Range = { key: 'selectMonth', start, end, label };
     setSelectedRange(range);
@@ -139,14 +168,18 @@ export function PdfReportScreen({ onBack, settings }: Props) {
   };
 
   const generateHTML = (): string => {
+    const sec = (window as any).__pdfSections || {
+      sales: true, supplierPurchases: true, inventory: true,
+      expenses: true, credit: true, damage: true,
+    };
     const rangeLabel = selectedRange?.label || '';
     const startDate = selectedRange ? formatDateLong(selectedRange.start, lang) : '';
     const endDate = selectedRange ? formatDateLong(selectedRange.end, lang) : '';
 
     const catName = (id: string) => {
-      const cat = categories.find((c) => c.id === id);
+      const cat = products.find((c) => c.id === id);
       if (!cat) return id;
-      return cat.nameKey ? t(cat.nameKey) : cat.name;
+      return cat.name;
     };
 
     // Daily summary rows — compute from sales grouped by date for accuracy
@@ -185,7 +218,7 @@ export function PdfReportScreen({ onBack, settings }: Props) {
       return `<tr>
         <td>${formatDate(p.purchaseDate, lang)}</td>
         <td>${supplierName}</td>
-        <td>${catName(p.categoryId)}</td>
+        <td>${catName(p.productId)}</td>
         <td style="text-align:right">${formatNumber(p.quantity)}</td>
         <td style="text-align:right">${formatCurrency(p.pricePerEgg, settings.currency)}</td>
         <td style="text-align:right">${formatCurrency(p.totalCost, settings.currency)}</td>
@@ -194,17 +227,17 @@ export function PdfReportScreen({ onBack, settings }: Props) {
     }).join('');
 
     // Inventory summary rows
-    const inventoryRows = categories.map((c) => {
+    const inventoryRows = products.map((c) => {
       const qty = inventory[c.id] || 0;
-      const status = qty === 0 ? (lang === 'si' ? 'කොටස් නැත' : 'Out of Stock') : '';
+      const status = qty === 0 ? ('Out of Stock') : '';
       return `<tr>
         <td>${catName(c.id)}</td>
         <td style="text-align:right">${formatNumber(qty)}</td>
-        <td style="text-align:center; color:${qty === 0 ? '#dc2626' : '#16a34a'}">${status || (lang === 'si' ? 'ප්‍රමාණවත්' : 'In Stock')}</td>
+        <td style="text-align:center; color:${qty === 0 ? '#dc2626' : '#16a34a'}">${status || ('In Stock')}</td>
       </tr>`;
     }).join('');
 
-    const shopName = settings.shopName || (lang === 'si' ? 'බිත්තර කඩේ' : 'EggShop');
+    const shopName = settings.shopName || ('EggShop');
 
     return `<!DOCTYPE html>
 <html lang="${lang}">
@@ -260,7 +293,7 @@ export function PdfReportScreen({ onBack, settings }: Props) {
     <div class="stat"><div class="stat-label">${t('reports.totalBuy')}</div><div class="stat-value">${formatCurrency(totals.buy, settings.currency)}</div></div>
   </div>
 
-  <h2>${t('pdf.section.sales')}</h2>
+  ${sec.sales ? `<h2>${t('pdf.section.sales')}</h2>
   <table>
     <thead>
       <tr>
@@ -280,7 +313,7 @@ export function PdfReportScreen({ onBack, settings }: Props) {
     </tbody>
   </table>
 
-  <h2>${t('pdf.section.supplierPurchases')}</h2>
+  ` : ''}${sec.supplierPurchases ? `<h2>${t('pdf.section.supplierPurchases')}</h2>
   <table>
     <thead>
       <tr>
@@ -301,7 +334,7 @@ export function PdfReportScreen({ onBack, settings }: Props) {
     </tbody>
   </table>
 
-  <h2>${t('pdf.section.inventory')}</h2>
+  ` : ''}${sec.inventory ? `<h2>${t('pdf.section.inventory')}</h2>
   <table>
     <thead>
       <tr>
@@ -314,9 +347,9 @@ export function PdfReportScreen({ onBack, settings }: Props) {
   </table>
 
   <div class="footer">
-    ${t('pdf.report.generatedAt', { at: new Date().toLocaleString(lang === 'si' ? 'si-LK' : 'en-US') })}
+    ${t('pdf.report.generatedAt', { at: new Date().toLocaleString('en-US') })}
   </div>
-</body>
+` : ''}</body>
 </html>`;
   };
 
@@ -339,7 +372,7 @@ export function PdfReportScreen({ onBack, settings }: Props) {
     // For sharing, we generate a plain-text summary since browsers can't
     // natively share PDF files without a library. The user can use "Print PDF"
     // to save as PDF, then share that file. We share a text summary instead.
-    const shopName = settings.shopName || (lang === 'si' ? 'බිත්තර කඩේ' : 'EggShop');
+    const shopName = settings.shopName || ('EggShop');
     const rangeLabel = selectedRange?.label || '';
     const summary = `${shopName} — ${t('pdf.title')}\n${rangeLabel}\n\n` +
       `${t('pdf.totalProfit')}: ${formatCurrency(totals.profit, settings.currency)}\n` +
@@ -360,9 +393,9 @@ export function PdfReportScreen({ onBack, settings }: Props) {
     // Fallback: copy to clipboard
     try {
       await navigator.clipboard.writeText(summary);
-      toast({ title: t('toast.saved'), description: lang === 'si' ? 'වාර්තාව පිටපත් කරන ලදී.' : 'Report copied to clipboard.', variant: 'success' });
+      toast({ title: t('toast.saved'), description: 'Report copied to clipboard.', variant: 'success' });
     } catch {
-      toast({ title: t('toast.error'), description: lang === 'si' ? 'බෙදා හැරීමට නොහැක.' : 'Cannot share.', variant: 'error' });
+      toast({ title: t('toast.error'), description: 'Cannot share.', variant: 'error' });
     }
   };
 
@@ -512,6 +545,51 @@ export function PdfReportScreen({ onBack, settings }: Props) {
                 </table>
               </div>
             </motion.section>
+
+            {/* Section picker */}
+            <div className="glass rounded-2xl p-3">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-semibold text-stone-700 dark:text-amber-100">
+                  {t('pdf.section.selectTitle')}
+                </p>
+                <button
+                  onClick={() => setSections({
+                    sales: true, supplierPurchases: true, inventory: true,
+                    expenses: true, credit: true, damage: true,
+                  })}
+                  className="text-[10px] text-amber-700 dark:text-amber-300 font-semibold"
+                >
+                  {t('pdf.section.selectAll')}
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-1.5">
+                {([
+                  { key: 'sales', label: t('pdf.section.sales') },
+                  { key: 'supplierPurchases', label: t('pdf.section.supplierPurchases') },
+                  { key: 'inventory', label: t('pdf.section.inventory') },
+                  { key: 'expenses', label: t('pdf.section.expenses') },
+                  { key: 'credit', label: t('pdf.section.credit') },
+                  { key: 'damage', label: t('pdf.section.damage') },
+                ] as const).map((sec) => (
+                  <button
+                    key={sec.key}
+                    onClick={() => setSections((prev) => ({ ...prev, [sec.key]: !prev[sec.key] }))}
+                    className={`px-2.5 py-2 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all ${
+                      sections[sec.key]
+                        ? 'glass-primary text-white'
+                        : 'glass text-stone-700 dark:text-amber-100'
+                    }`}
+                  >
+                    <span className={`w-3 h-3 rounded border-2 flex items-center justify-center ${
+                      sections[sec.key] ? 'bg-white border-white' : 'border-stone-400'
+                    }`}>
+                      {sections[sec.key] && <Check size={8} className="text-amber-600" />}
+                    </span>
+                    {sec.label}
+                  </button>
+                ))}
+              </div>
+            </div>
 
             <div className="grid grid-cols-2 gap-3">
               <button

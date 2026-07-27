@@ -11,7 +11,7 @@ import {
   PieChart, Pie, Legend,
 } from 'recharts';
 import {
-  useSupplierData, useCategories, useI18n,
+  useSupplierData, useProducts, useI18n,
   saveSupplierPurchase, saveSupplierPayment, deleteSupplierPurchase,
   genId, todayStr, formatCurrency, formatNumber,
   type SupplierPurchase, type SupplierPayment,
@@ -28,14 +28,14 @@ type Props = {
 };
 
 type LineItem = {
-  categoryId: string;
+  productId: string;
   quantity: string;
   pricePerEgg: string;
 };
 
 export function SupplierProfileScreen({ supplierId, onBack, currency }: Props) {
   const { t, lang } = useI18n();
-  const { categories } = useCategories();
+  const { products } = useProducts();
   const { summary, purchaseGroups, payments, loading, refresh } = useSupplierData(supplierId);
   const { toast } = useAppToast();
   const [supplier, setSupplier] = useState<Supplier | null>(null);
@@ -56,18 +56,18 @@ export function SupplierProfileScreen({ supplierId, onBack, currency }: Props) {
     const map = new Map<string, number>();
     for (const g of purchaseGroups) {
       for (const item of g.items) {
-        map.set(item.categoryId, (map.get(item.categoryId) || 0) + item.quantity);
+        map.set(item.productId, (map.get(item.productId) || 0) + item.quantity);
       }
     }
     return Array.from(map.entries()).map(([catId, qty]) => {
-      const cat = categories.find(c => c.id === catId);
+      const cat = products.find(c => c.id === catId);
       return {
-        name: cat?.nameKey ? t(cat.nameKey) : cat?.name || catId,
+        name: cat?.name || catId,
         value: qty,
         color: cat?.color || '#f59e0b',
       };
     });
-  }, [purchaseGroups, categories, t]);
+  }, [purchaseGroups, products, t]);
 
   // Chart data: payment status
   const paymentStatusData = useMemo(() => {
@@ -270,7 +270,7 @@ export function SupplierProfileScreen({ supplierId, onBack, currency }: Props) {
                 <PurchaseGroupCard
                   key={g.groupId}
                   group={g}
-                  categories={categories}
+                  products={products}
                   currency={currency}
                   t={t}
                   lang={lang}
@@ -308,7 +308,7 @@ export function SupplierProfileScreen({ supplierId, onBack, currency }: Props) {
                   <div className="flex-1 min-w-0">
                     <p className="font-semibold text-stone-800 dark:text-amber-50">{formatCurrency(pm.amount, currency)}</p>
                     <p className="text-stone-500 dark:text-amber-100/50 flex items-center gap-1">
-                      <Clock size={10} /> {formatDate(pm.paymentDate, lang as any)} · {new Date(pm.paidAt).toLocaleTimeString(lang === 'si' ? 'si-LK' : 'en-US', { hour: '2-digit', minute: '2-digit' })}
+                      <Clock size={10} /> {formatDate(pm.paymentDate, lang as any)} · {new Date(pm.paidAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
                     </p>
                   </div>
                 </div>
@@ -374,9 +374,9 @@ export function SupplierProfileScreen({ supplierId, onBack, currency }: Props) {
 
 // ---------- Purchase group card (shows multiple egg types per delivery) ----------
 
-function PurchaseGroupCard({ group, categories, currency, t, lang, onAddPayment, onDelete }: {
+function PurchaseGroupCard({ group, products, currency, t, lang, onAddPayment, onDelete }: {
   group: { groupId: string; date: string; at: number; items: SupplierPurchase[]; totalCost: number; totalEggs: number; totalPaid: number; totalRemaining: number; allPaid: boolean };
-  categories: any[];
+  products: any[];
   currency: string;
   t: (key: string, vars?: any) => string;
   lang: string;
@@ -407,12 +407,12 @@ function PurchaseGroupCard({ group, categories, currency, t, lang, onAddPayment,
       {/* Line items — one per egg type */}
       <div className="space-y-1.5 mb-2.5">
         {group.items.map((item) => {
-          const cat = categories.find(c => c.id === item.categoryId);
+          const cat = products.find(c => c.id === item.productId);
           return (
             <div key={item.id} className="flex items-center gap-2 text-xs">
               <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: cat?.color }} />
               <span className="font-semibold text-stone-800 dark:text-amber-50 flex-1">
-                {cat?.nameKey ? t(cat.nameKey) : cat?.name}
+                {cat?.name}
               </span>
               <span className="text-stone-600 dark:text-amber-100/70">
                 {formatNumber(item.quantity)} {t('supplier.eggsAt')} {formatCurrency(item.pricePerEgg, currency)}
@@ -496,7 +496,7 @@ function PurchaseForm({ open, onClose, onSaved, supplierId, currency }: {
   currency: string;
 }) {
   const { t } = useI18n();
-  const { categories } = useCategories();
+  const { products } = useProducts();
   const { toast } = useAppToast();
   const [lineItems, setLineItems] = useState<LineItem[]>([]);
   const [paidNow, setPaidNow] = useState('');
@@ -505,15 +505,15 @@ function PurchaseForm({ open, onClose, onSaved, supplierId, currency }: {
   useEffect(() => {
     if (open) {
       // Start with one empty line item
-      setLineItems([{ categoryId: categories[0]?.id || '', quantity: '', pricePerEgg: '' }]);
+      setLineItems([{ productId: products[0]?.id || '', quantity: '', pricePerEgg: '' }]);
       setPaidNow('');
     }
-  }, [open, categories]);
+  }, [open, products]);
 
   const parseNum = (s: string) => { const n = parseFloat(s); return isFinite(n) ? n : 0; };
 
   // Compute totals
-  const validItems = lineItems.filter(li => li.categoryId && parseNum(li.quantity) > 0 && parseNum(li.pricePerEgg) > 0);
+  const validItems = lineItems.filter(li => li.productId && parseNum(li.quantity) > 0 && parseNum(li.pricePerEgg) > 0);
   const totalEggs = validItems.reduce((a, li) => a + parseNum(li.quantity), 0);
   const totalCost = validItems.reduce((a, li) => a + parseNum(li.quantity) * parseNum(li.pricePerEgg), 0);
   const paidN = parseNum(paidNow);
@@ -522,10 +522,10 @@ function PurchaseForm({ open, onClose, onSaved, supplierId, currency }: {
   const addLineItem = () => {
     if (lineItems.length >= 6) return;
     // Find a category not yet used
-    const usedIds = new Set(lineItems.map(li => li.categoryId));
-    const nextCat = categories.find(c => !usedIds.has(c.id));
+    const usedIds = new Set(lineItems.map(li => li.productId));
+    const nextCat = products.find(c => !usedIds.has(c.id));
     if (!nextCat) return;
-    setLineItems([...lineItems, { categoryId: nextCat.id, quantity: '', pricePerEgg: '' }]);
+    setLineItems([...lineItems, { productId: nextCat.id, quantity: '', pricePerEgg: '' }]);
   };
 
   const removeLineItem = (idx: number) => {
@@ -557,7 +557,7 @@ function PurchaseForm({ open, onClose, onSaved, supplierId, currency }: {
         const purchase: SupplierPurchase = {
           id: genId(),
           supplierId,
-          categoryId: li.categoryId,
+          productId: li.productId,
           quantity: qty,
           pricePerEgg: price,
           totalCost: itemTotal,
@@ -611,9 +611,9 @@ function PurchaseForm({ open, onClose, onSaved, supplierId, currency }: {
 
               {/* Line items */}
               {lineItems.map((li, idx) => {
-                const cat = categories.find(c => c.id === li.categoryId);
-                const usedIds = new Set(lineItems.map((l, i) => i !== idx ? l.categoryId : '').filter(Boolean));
-                const availableCats = categories.filter(c => !usedIds.has(c.id) || c.id === li.categoryId);
+                const cat = products.find(c => c.id === li.productId);
+                const usedIds = new Set(lineItems.map((l, i) => i !== idx ? l.productId : '').filter(Boolean));
+                const availableCats = products.filter(c => !usedIds.has(c.id) || c.id === li.productId);
                 const itemTotal = parseNum(li.quantity) * parseNum(li.pricePerEgg);
                 return (
                   <div key={idx} className="glass rounded-2xl p-3 space-y-2 relative">
@@ -631,13 +631,13 @@ function PurchaseForm({ open, onClose, onSaved, supplierId, currency }: {
                       {availableCats.map((c) => (
                         <button
                           key={c.id}
-                          onClick={() => updateLineItem(idx, { categoryId: c.id })}
+                          onClick={() => updateLineItem(idx, { productId: c.id })}
                           className={`flex-shrink-0 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1 ${
-                            li.categoryId === c.id ? 'glass-primary text-white' : 'glass text-stone-700 dark:text-amber-100'
+                            li.productId === c.id ? 'glass-primary text-white' : 'glass text-stone-700 dark:text-amber-100'
                           }`}
                         >
                           <span className="w-2 h-2 rounded-full" style={{ background: c.color }} />
-                          {c.nameKey ? t(c.nameKey) : c.name}
+                          {c.name}
                         </button>
                       ))}
                     </div>

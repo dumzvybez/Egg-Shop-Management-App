@@ -1,8 +1,8 @@
 {
-  "name": "EggShop",
-  "short_name": "EggShop",
-  "description": "Modern offline Progressive Web App for daily egg shop management — prices, sales, profits, reports and customer credit.",
-  "lang": "si",
+  "name": "Shop Manager",
+  "short_name": "Shop Manager",
+  "description": "Modern offline Progressive Web App for small-business management — sales, inventory, suppliers, credit, expenses and reports.",
+  "lang": "en",
   "dir": "ltr",
   "start_url": "/",
   "scope": "/",
@@ -47,13 +47,13 @@
     {
       "name": "Dashboard",
       "short_name": "Dashboard",
-      "url": "/?view=dashboard",
+      "url": "/#/dashboard",
       "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
     },
     {
-      "name": "Today",
-      "short_name": "Today",
-      "url": "/?view=today",
+      "name": "Sales",
+      "short_name": "Sales",
+      "url": "/#/sales",
       "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
     }
   ]

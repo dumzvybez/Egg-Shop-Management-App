@@ -4,8 +4,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ArrowLeft, Plus, Check, X, User, Egg, Coins, Wallet, History, Phone, ChevronDown, ChevronUp, AlertTriangle } from 'lucide-react';
 import {
-  useCategories, useCredits, useI18n,
-  getLatestPriceSessionForCategory,
+  useProducts, useCredits, useI18n,
+  getLatestPriceSessionForProduct,
   saveCredit, recordCreditPayment, getCreditPayments, genId, todayStr,
   type CreditRecord, type CreditPayment,
 } from '@/lib/data-hooks-adapter';
@@ -19,7 +19,7 @@ type Props = {
 
 export function CreditScreen({ onBack, currency }: Props) {
   const { t, lang } = useI18n();
-  const { categories } = useCategories();
+  const { products } = useProducts();
   const { active, paid, loading, refresh } = useCredits();
   const { toast } = useAppToast();
 
@@ -114,7 +114,7 @@ export function CreditScreen({ onBack, currency }: Props) {
           ) : (
             <div className="space-y-2">
               {active.map((c, i) => {
-                const cat = categories.find(x => x.id === c.categoryId);
+                const cat = products.find(x => x.id === c.productId);
                 return (
                   <motion.div
                     key={c.id}
@@ -130,7 +130,7 @@ export function CreditScreen({ onBack, currency }: Props) {
                     <div className="flex-1 min-w-0">
                       <p className="font-semibold text-sm text-stone-800 dark:text-amber-50 truncate">{c.customerName}</p>
                       <p className="text-xs text-stone-600 dark:text-amber-100/70 mt-0.5">
-                        {cat?.name || cat?.nameKey} · {formatNumber(c.quantity)} · {formatDate(c.purchaseDate, lang)}
+                        {cat?.name} · {formatNumber(c.quantity || 0)} · {formatDate(c.purchaseDate, lang)}
                       </p>
                     </div>
                     <div className="text-right flex-shrink-0">
@@ -150,7 +150,7 @@ export function CreditScreen({ onBack, currency }: Props) {
           ) : (
             <div className="space-y-2">
               {paid.map((c, i) => {
-                const cat = categories.find(x => x.id === c.categoryId);
+                const cat = products.find(x => x.id === c.productId);
                 return (
                   <motion.div
                     key={c.id}
@@ -166,11 +166,11 @@ export function CreditScreen({ onBack, currency }: Props) {
                     <div className="flex-1 min-w-0">
                       <p className="font-semibold text-sm text-stone-800 dark:text-amber-50 truncate">{c.customerName}</p>
                       <p className="text-xs text-stone-600 dark:text-amber-100/70 mt-0.5">
-                        {cat?.name || cat?.nameKey} · {formatNumber(c.quantity)} · {t('credit.purchaseDate')}: {formatDate(c.purchaseDate, lang)}
+                        {cat?.name} · {formatNumber(c.quantity || 0)} · {t('credit.purchaseDate')}: {formatDate(c.purchaseDate, lang)}
                       </p>
                       {c.paidAt && (
                         <p className="text-[10px] text-stone-500 mt-0.5">
-                          {t('credit.paymentDate')}: {new Date(c.paidAt).toLocaleString(lang === 'si' ? 'si-LK' : 'en-US')}
+                          {t('credit.paymentDate')}: {new Date(c.paidAt).toLocaleString('en-US')}
                         </p>
                       )}
                     </div>
@@ -219,17 +219,17 @@ function CreditForm({ open, onClose, onSaved, currency }: {
   currency: string;
 }) {
   const { t, lang } = useI18n();
-  const { categories } = useCategories();
+  const { products } = useProducts();
   const { refresh } = useCredits();
   const { toast } = useAppToast();
 
   const [customerName, setCustomerName] = useState('');
-  const [categoryId, setCategoryId] = useState('');
+  const [productId, setCategoryId] = useState('');
   const [quantity, setQuantity] = useState('');
   const [sellPrice, setSellPrice] = useState('');
   const [paidNow, setPaidNow] = useState('');
   const [saving, setSaving] = useState(false);
-  const [availableCats, setAvailableCats] = useState<typeof categories>([]);
+  const [availableCats, setAvailableCats] = useState<typeof products>([]);
 
   // Default category = first available today
   useEffect(() => {
@@ -237,10 +237,10 @@ function CreditForm({ open, onClose, onSaved, currency }: {
     (async () => {
       // Reset
       setCustomerName(''); setQuantity(''); setSellPrice(''); setPaidNow('');
-      // Build available-categories list (only those with today's sell price set)
-      const available: typeof categories = [];
-      for (const c of categories) {
-        const latest = await getLatestPriceSessionForCategory(todayStr(), c.id);
+      // Build available-products list (only those with today's sell price set)
+      const available: typeof products = [];
+      for (const c of products) {
+        const latest = await getLatestPriceSessionForProduct(todayStr(), c.id);
         if (latest && latest.sellPrice != null) {
           available.push(c);
         }
@@ -248,25 +248,25 @@ function CreditForm({ open, onClose, onSaved, currency }: {
       setAvailableCats(available);
       if (available.length > 0) {
         setCategoryId(available[0].id);
-        const latest = await getLatestPriceSessionForCategory(todayStr(), available[0].id);
+        const latest = await getLatestPriceSessionForProduct(todayStr(), available[0].id);
         if (latest && latest.sellPrice != null) setSellPrice(String(latest.sellPrice));
       } else {
         setCategoryId('');
         setSellPrice('');
       }
     })();
-  }, [open, categories]);
+  }, [open, products]);
 
   // Auto-update sellPrice when category changes (pull today's price)
   useEffect(() => {
-    if (!open || !categoryId) return;
+    if (!open || !productId) return;
     (async () => {
-      const latest = await getLatestPriceSessionForCategory(todayStr(), categoryId);
+      const latest = await getLatestPriceSessionForProduct(todayStr(), productId);
       if (latest && latest.sellPrice != null) {
         setSellPrice(String(latest.sellPrice));
       }
     })();
-  }, [categoryId, open]);
+  }, [productId, open]);
 
   const parseNum = (s: string) => { const n = parseFloat(s); return isFinite(n) ? n : 0; };
   const qtyN = parseNum(quantity);
@@ -294,9 +294,10 @@ function CreditForm({ open, onClose, onSaved, currency }: {
       const record: CreditRecord = {
         id: genId(),
         customerName: customerName.trim(),
-        categoryId,
+        productId,
         quantity: qtyN,
         sellPrice: priceN,
+        items: [{ productId, name: '', quantity: qtyN, unitPrice: priceN }],
         totalAmount: total,
         paidAmount: paidN,
         remaining,
@@ -367,9 +368,9 @@ function CreditForm({ open, onClose, onSaved, currency }: {
                 </label>
                 {availableCats.length === 0 ? (
                   <div className="glass rounded-xl p-3 text-xs text-stone-600 dark:text-amber-100/70 text-center">
-                    {lang === 'si'
-                      ? 'අද දිනට මිල ඇතුළත් කර ඇති බිත්තර වර්ග නොමැත. පළමුව "මිල වෙනස් කරන්න" භාවිතා කරන්න.'
-                      : 'No egg categories have today\'s prices set. Use "Change Prices" first.'}
+                    {false
+                      ? 'No products have today\'s prices set. Use "Change Prices" first.'
+                      : 'No egg products have today\'s prices set. Use "Change Prices" first.'}
                   </div>
                 ) : (
                   <div className="flex gap-2 overflow-x-auto scroll-area pb-1">
@@ -378,11 +379,11 @@ function CreditForm({ open, onClose, onSaved, currency }: {
                         key={c.id}
                         onClick={() => setCategoryId(c.id)}
                         className={`flex-shrink-0 px-3 py-2 rounded-xl text-sm font-semibold transition-all flex items-center gap-1.5 ${
-                          categoryId === c.id ? 'glass-primary text-white' : 'glass text-stone-700 dark:text-amber-100/80'
+                          productId === c.id ? 'glass-primary text-white' : 'glass text-stone-700 dark:text-amber-100/80'
                         }`}
                       >
                         <span className="w-2 h-2 rounded-full" style={{ background: c.color }} />
-                        {c.nameKey ? t(c.nameKey) : c.name}
+                        {c.name}
                       </button>
                     ))}
                   </div>
@@ -486,7 +487,7 @@ function PaymentDialog({ record, onClose, onSaved, currency }: {
   currency: string;
 }) {
   const { t, lang } = useI18n();
-  const { categories } = useCategories();
+  const { products } = useProducts();
   const { toast } = useAppToast();
   const [amount, setAmount] = useState('');
   const [saving, setSaving] = useState(false);
@@ -500,8 +501,8 @@ function PaymentDialog({ record, onClose, onSaved, currency }: {
   }, [record]);
 
   if (!record) return null;
-  const cat = categories.find(c => c.id === record.categoryId);
-  const purchaseTime = new Date(record.purchaseAt).toLocaleTimeString(lang === 'si' ? 'si-LK' : 'en-US', {
+  const cat = products.find(c => c.id === record.productId);
+  const purchaseTime = new Date(record.purchaseAt).toLocaleTimeString('en-US', {
     hour: '2-digit', minute: '2-digit',
   });
 
@@ -571,8 +572,8 @@ function PaymentDialog({ record, onClose, onSaved, currency }: {
               {/* Summary */}
               <div className="glass rounded-2xl p-3 space-y-1.5">
                 <DetailRow label={t('credit.confirmPaid.customer')} value={record.customerName} icon={<User size={14} />} />
-                <DetailRow label={t('credit.confirmPaid.eggType')} value={cat?.nameKey ? t(cat.nameKey) : (cat?.name || record.categoryId)} icon={<Egg size={14} />} />
-                <DetailRow label={t('credit.confirmPaid.qty')} value={`${formatNumber(record.quantity)}`} icon={<Egg size={14} />} />
+                <DetailRow label={t('credit.confirmPaid.eggType')} value={(cat?.name || record.productId || '')} icon={<Egg size={14} />} />
+                <DetailRow label={t('credit.confirmPaid.qty')} value={`${formatNumber(record.quantity || 0)}`} icon={<Egg size={14} />} />
                 <DetailRow label={t('credit.confirmPaid.purchaseDate')} value={`${formatDate(record.purchaseDate, lang)} · ${purchaseTime}`} icon={<History size={14} />} />
                 <div className="border-t border-white/30 dark:border-white/10 my-1.5" />
                 <DetailRow label={t('credit.confirmPaid.total')} value={formatCurrency(record.totalAmount, currency)} icon={<Coins size={14} />} strong />
@@ -595,7 +596,7 @@ function PaymentDialog({ record, onClose, onSaved, currency }: {
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="font-semibold text-stone-800 dark:text-amber-50">{formatCurrency(pm.amount, currency)}</p>
-                          <p className="text-stone-500 dark:text-amber-100/50">{formatDate(pm.paymentDate, lang)} · {new Date(pm.paidAt).toLocaleTimeString(lang === 'si' ? 'si-LK' : 'en-US', { hour: '2-digit', minute: '2-digit' })}</p>
+                          <p className="text-stone-500 dark:text-amber-100/50">{formatDate(pm.paymentDate, lang)} · {new Date(pm.paidAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}</p>
                         </div>
                       </div>
                     ))}
@@ -677,7 +678,7 @@ function HistoryDialog({ record, onClose, currency }: {
   currency: string;
 }) {
   const { t, lang } = useI18n();
-  const { categories } = useCategories();
+  const { products } = useProducts();
   const [payments, setPayments] = useState<CreditPayment[]>([]);
 
   useEffect(() => {
@@ -687,7 +688,7 @@ function HistoryDialog({ record, onClose, currency }: {
   }, [record]);
 
   if (!record) return null;
-  const cat = categories.find(c => c.id === record.categoryId);
+  const cat = products.find(c => c.id === record.productId);
 
   return (
     <AnimatePresence>
@@ -715,8 +716,8 @@ function HistoryDialog({ record, onClose, currency }: {
             <div className="flex-1 overflow-y-auto scroll-area px-5 py-4 space-y-3">
               <div className="glass rounded-2xl p-3 space-y-1.5">
                 <DetailRow label={t('credit.confirmPaid.customer')} value={record.customerName} icon={<User size={14} />} />
-                <DetailRow label={t('credit.confirmPaid.eggType')} value={cat?.nameKey ? t(cat.nameKey) : (cat?.name || record.categoryId)} icon={<Egg size={14} />} />
-                <DetailRow label={t('credit.confirmPaid.qty')} value={`${formatNumber(record.quantity)}`} icon={<Egg size={14} />} />
+                <DetailRow label={t('credit.confirmPaid.eggType')} value={(cat?.name || record.productId || '')} icon={<Egg size={14} />} />
+                <DetailRow label={t('credit.confirmPaid.qty')} value={`${formatNumber(record.quantity || 0)}`} icon={<Egg size={14} />} />
                 <DetailRow label={t('credit.confirmPaid.purchaseDate')} value={formatDate(record.purchaseDate, lang)} icon={<History size={14} />} />
                 <div className="border-t border-white/30 dark:border-white/10 my-1.5" />
                 <DetailRow label={t('credit.confirmPaid.total')} value={formatCurrency(record.totalAmount, currency)} icon={<Coins size={14} />} strong />
@@ -741,7 +742,7 @@ function HistoryDialog({ record, onClose, currency }: {
                         <div className="flex-1 min-w-0">
                           <p className="font-semibold text-sm text-stone-800 dark:text-amber-50">{formatCurrency(pm.amount, currency)}</p>
                           <p className="text-[10px] text-stone-500 dark:text-amber-100/50">
-                            {formatDate(pm.paymentDate, lang)} · {new Date(pm.paidAt).toLocaleTimeString(lang === 'si' ? 'si-LK' : 'en-US', { hour: '2-digit', minute: '2-digit' })}
+                            {formatDate(pm.paymentDate, lang)} · {new Date(pm.paidAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
                           </p>
                         </div>
                       </div>

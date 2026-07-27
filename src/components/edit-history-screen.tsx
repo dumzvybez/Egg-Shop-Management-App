@@ -20,12 +20,12 @@ function bucketHistory(entries: EditHistoryEntry[], lang: string) {
   const oneYearAgo = Date.now() - 365 * 24 * 60 * 60 * 1000;
 
   const buckets: { key: string; label: string; entries: EditHistoryEntry[] }[] = [
-    { key: 'today', label: lang === 'si' ? 'අද' : 'Today', entries: [] },
-    { key: 'yesterday', label: lang === 'si' ? 'ඊයේ' : 'Yesterday', entries: [] },
-    { key: 'thisWeek', label: lang === 'si' ? 'මේ සතියේ' : 'This Week', entries: [] },
-    { key: 'thisMonth', label: lang === 'si' ? 'මේ මාසයේ' : 'This Month', entries: [] },
-    { key: 'thisYear', label: lang === 'si' ? 'මේ වසරේ' : 'This Year', entries: [] },
-    { key: 'older', label: lang === 'si' ? 'පැරණි' : 'Older', entries: [] },
+    { key: 'today', label: 'Today', entries: [] },
+    { key: 'yesterday', label: 'Yesterday', entries: [] },
+    { key: 'thisWeek', label: 'This Week', entries: [] },
+    { key: 'thisMonth', label: 'This Month', entries: [] },
+    { key: 'thisYear', label: 'This Year', entries: [] },
+    { key: 'older', label: 'Older', entries: [] },
   ];
 
   for (const e of entries) {
@@ -138,7 +138,7 @@ export function EditHistoryScreen({ onBack }: Props) {
                                 {actionLabel}
                               </span>
                               <span className="text-[10px] text-stone-500 dark:text-amber-100/50">
-                                {new Date(e.at).toLocaleString(lang === 'si' ? 'si-LK' : 'en-US', {
+                                {new Date(e.at).toLocaleString('en-US', {
                                   day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit',
                                 })}
                               </span>
