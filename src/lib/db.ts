@@ -210,15 +210,24 @@ export type Settings = {
   shopPhone: string;
   shopAddress: string;
   shopType: string;          // e.g. "grocery", "convenience", "snack", "retail", "egg", "other"
-  currency: string;          // default 'LKR'
-  theme: 'light' | 'dark';
+  currency: string;          // default 'LKR' (ISO 4217 code)
+  theme: 'light' | 'dark';   // legacy — superseded by themeId
+  themeId: string;           // NEW v3.1 — theme preset id (see themes.ts)
+  backgroundId: string;      // NEW v3.1 — background preset id (see themes.ts)
   tutorialDone: boolean;
+  onboardingCompleted: boolean; // NEW v3.1 — true after first onboarding
   dailyPriceDoneDate: string | null;
   lastBackupAt: number | null;
   autoBackupEnabled: boolean;
+  autoBackupFrequency: 'daily' | 'weekly' | 'manual'; // NEW v3.1
+  lastAutoBackupAt: number | null; // NEW v3.1
   installDate: string | null;
   lastMonthEndPrompted: string | null;
   hintsDismissed: string[];
+  // App Lock (NEW v3.1)
+  appLockEnabled: boolean;
+  appLockPin: string | null;       // 4-8 digit numeric PIN (stored locally only)
+  appLockBiometric: boolean;       // use WebAuthn / device auth where available
   schemaVersion: number;
 };
 
@@ -294,14 +303,22 @@ export const DEFAULT_SETTINGS: Settings = {
   shopType: '',
   currency: 'LKR',
   theme: 'dark',
+  themeId: 'modern-dark',
+  backgroundId: 'default',
   tutorialDone: false,
+  onboardingCompleted: false,
   dailyPriceDoneDate: null,
   lastBackupAt: null,
   autoBackupEnabled: true,
+  autoBackupFrequency: 'daily',
+  lastAutoBackupAt: null,
   installDate: null,
   lastMonthEndPrompted: null,
   hintsDismissed: [],
-  schemaVersion: 7,
+  appLockEnabled: false,
+  appLockPin: null,
+  appLockBiometric: false,
+  schemaVersion: 8,
 };
 
 // Distinct colors for new products (cycled when user adds new ones)
@@ -317,7 +334,7 @@ let _db: Promise<IDBPDatabase<ShopDB>> | null = null;
 
 export function getDB(): Promise<IDBPDatabase<ShopDB>> {
   if (_db) return _db;
-  _db = openDB<ShopDB>('shop-manager', 7, {
+  _db = openDB<ShopDB>('shop-manager', 8, {
     upgrade(db, oldVersion) {
       // v1–6: legacy 'biththara-kade' schema. For a brand-new install we just
       // create the v7 shape directly. For an existing v1–6 install we MIGRATE
@@ -437,9 +454,12 @@ export async function saveSettings(patch: Partial<Settings>): Promise<Settings> 
   try {
     const mirror = {
       theme: next.theme,
+      themeId: next.themeId,
+      backgroundId: next.backgroundId,
       shopName: next.shopName,
       ownerName: next.ownerName,
       currency: next.currency,
+      appLockEnabled: next.appLockEnabled,
     };
     localStorage.setItem('shop-manager-settings', JSON.stringify(mirror));
   } catch { /* ignore */ }
@@ -1514,6 +1534,162 @@ export async function restoreAutoBackup(id: string): Promise<void> {
 export async function deleteAutoBackup(id: string): Promise<void> {
   const db = await getDB();
   await db.delete('backups', id);
+}
+
+/** Get the size (in bytes) of a stored auto-backup. */
+export async function getAutoBackupSize(id: string): Promise<number> {
+  const db = await getDB();
+  const b = await db.get('backups', id);
+  return b ? new Blob([b.json]).size : 0;
+}
+
+// ---------- CSV / Excel export helpers (NEW v3.1) ----------
+
+/** Convert an array of objects to a CSV string (Excel-compatible). */
+export function toCSV(rows: Record<string, any>[], columns?: { key: string; label: string }[]): string {
+  if (rows.length === 0 && !columns) return '';
+  const cols = columns || Object.keys(rows[0] || {}).map((k) => ({ key: k, label: k }));
+  const escape = (v: any) => {
+    if (v == null) return '';
+    const s = String(v);
+    if (s.includes(',') || s.includes('"') || s.includes('\n')) {
+      return '"' + s.replace(/"/g, '""') + '"';
+    }
+    return s;
+  };
+  const header = cols.map((c) => escape(c.label)).join(',');
+  const body = rows.map((r) => cols.map((c) => escape(r[c.key])).join(',')).join('\n');
+  // Prepend BOM for Excel UTF-8 compatibility
+  return '\uFEFF' + header + '\n' + body;
+}
+
+/** Trigger a browser download of a text file. */
+export function downloadTextFile(filename: string, content: string, mimeType = 'text/csv'): void {
+  const blob = new Blob([content], { type: `${mimeType};charset=utf-8` });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/** Export sales as CSV. */
+export async function exportSalesCSV(start: string, end: string): Promise<string> {
+  const sales = await getSalesForDateRange(start, end);
+  const products = await getProducts();
+  const prodName = (id: string) => products.find((p) => p.id === id)?.name || id;
+  const rows = sales.map((s) => ({
+    date: s.date,
+    product: prodName(s.productId),
+    quantity: s.quantity,
+    buyPrice: s.buyPrice.toFixed(2),
+    sellPrice: s.sellPrice.toFixed(2),
+    profit: s.profit.toFixed(2),
+    session: s.sessionIndex + 1,
+  }));
+  return toCSV(rows, [
+    { key: 'date', label: 'Date' },
+    { key: 'product', label: 'Product' },
+    { key: 'quantity', label: 'Quantity' },
+    { key: 'buyPrice', label: 'Buy Price' },
+    { key: 'sellPrice', label: 'Sell Price' },
+    { key: 'profit', label: 'Profit' },
+    { key: 'session', label: 'Session' },
+  ]);
+}
+
+/** Export inventory as CSV. */
+export async function exportInventoryCSV(): Promise<string> {
+  const products = await getProducts();
+  const inv = await getAllInventory();
+  const rows = products.map((p) => ({
+    name: p.name,
+    category: p.category,
+    unit: p.unit,
+    stock: inv[p.id] || 0,
+    purchasePrice: p.purchasePrice.toFixed(2),
+    sellingPrice: p.sellingPrice.toFixed(2),
+    reorderThreshold: p.reorderThreshold,
+  }));
+  return toCSV(rows, [
+    { key: 'name', label: 'Product' },
+    { key: 'category', label: 'Category' },
+    { key: 'unit', label: 'Unit' },
+    { key: 'stock', label: 'Current Stock' },
+    { key: 'purchasePrice', label: 'Purchase Price' },
+    { key: 'sellingPrice', label: 'Selling Price' },
+    { key: 'reorderThreshold', label: 'Reorder Threshold' },
+  ]);
+}
+
+/** Export expenses as CSV. */
+export async function exportExpensesCSV(start: string, end: string): Promise<string> {
+  const expenses = await getExpensesForDateRange(start, end);
+  const rows = expenses.map((e) => ({
+    date: e.date,
+    category: e.category,
+    amount: e.amount.toFixed(2),
+    note: e.note || '',
+  }));
+  return toCSV(rows, [
+    { key: 'date', label: 'Date' },
+    { key: 'category', label: 'Category' },
+    { key: 'amount', label: 'Amount' },
+    { key: 'note', label: 'Note' },
+  ]);
+}
+
+/** Export customer credits as CSV. */
+export async function exportCreditsCSV(): Promise<string> {
+  const credits = await getAllCredits();
+  const rows = credits.map((c) => ({
+    customer: c.customerName,
+    date: c.purchaseDate,
+    total: c.totalAmount.toFixed(2),
+    paid: c.paidAmount.toFixed(2),
+    remaining: c.remaining.toFixed(2),
+    status: c.status,
+  }));
+  return toCSV(rows, [
+    { key: 'customer', label: 'Customer' },
+    { key: 'date', label: 'Purchase Date' },
+    { key: 'total', label: 'Total Amount' },
+    { key: 'paid', label: 'Paid Amount' },
+    { key: 'remaining', label: 'Remaining' },
+    { key: 'status', label: 'Status' },
+  ]);
+}
+
+/** Export supplier purchases as CSV. */
+export async function exportSupplierPurchasesCSV(start: string, end: string): Promise<string> {
+  const purchases = await getAllSupplierPurchasesForDateRange(start, end);
+  const suppliers = await getAllSuppliers();
+  const products = await getProducts();
+  const supName = (id: string) => suppliers.find((s) => s.id === id)?.name || id;
+  const prodName = (id: string) => products.find((p) => p.id === id)?.name || id;
+  const rows = purchases.map((p) => ({
+    date: p.purchaseDate,
+    supplier: supName(p.supplierId),
+    product: prodName(p.productId),
+    quantity: p.quantity,
+    pricePerUnit: p.pricePerEgg.toFixed(2),
+    totalCost: p.totalCost.toFixed(2),
+    paidAmount: p.paidAmount.toFixed(2),
+    remaining: p.remaining.toFixed(2),
+    status: p.status,
+  }));
+  return toCSV(rows, [
+    { key: 'date', label: 'Date' },
+    { key: 'supplier', label: 'Supplier' },
+    { key: 'product', label: 'Product' },
+    { key: 'quantity', label: 'Quantity' },
+    { key: 'pricePerUnit', label: 'Price/Unit' },
+    { key: 'totalCost', label: 'Total Cost' },
+    { key: 'paidAmount', label: 'Paid' },
+    { key: 'remaining', label: 'Remaining' },
+    { key: 'status', label: 'Status' },
+  ]);
 }
 
 // ---------- Aggregations ----------

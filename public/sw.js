@@ -1,13 +1,13 @@
 /// <reference lib="webworker" />
 
 /**
- * Service Worker for Shop Manager
+ * Service Worker for ShopSuite
  * - Pre-caches app shell on install
  * - Network-first for HTML/JS/CSS (so updates are picked up)
  * - Cache-first for static assets (icons, fonts, images)
  */
 
-const VERSION = 'v3.0.0';
+const VERSION = 'v3.1.0';
 const SHELL_CACHE = `shell-${VERSION}`;
 const ASSET_CACHE = `assets-${VERSION}`;
 const SHELL_URLS = [

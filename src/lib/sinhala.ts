@@ -1,65 +1,65 @@
 /**
- * Locale-formatting helpers for Shop Manager.
+ * Locale-formatting helpers for ShopSuite.
  *
- * v3.0 — English only. Number formatting uses en-US grouping (comma
- * thousands separator). Currency defaults to 'LKR'.
+ * v3.1 — English only. Multi-currency support via currencies.ts.
  */
 
-import { type Lang, translate } from './i18n';
+import { type Lang } from './i18n';
+import { getCurrency } from './currencies';
 
 export const ENGLISH_MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',
 ];
 
-export const SINHALA_MONTHS = ENGLISH_MONTHS; // legacy alias kept
+export const SINHALA_MONTHS = ENGLISH_MONTHS;
 
 export const ENGLISH_DAYS = [
   'Sunday', 'Monday', 'Tuesday', 'Wednesday',
   'Thursday', 'Friday', 'Saturday',
 ];
 
-export const SINHALA_DAYS = ENGLISH_DAYS; // legacy alias kept
+export const SINHALA_DAYS = ENGLISH_DAYS;
 
-function months(_lang: Lang = 'en'): string[] {
+function months(): string[] {
   return ENGLISH_MONTHS;
 }
 
-function days(_lang: Lang = 'en'): string[] {
+function days(): string[] {
   return ENGLISH_DAYS;
 }
 
-export function formatDate(dateStr: string, lang: Lang = 'en'): string {
+export function formatDate(dateStr: string, _lang: Lang = 'en'): string {
   if (!dateStr) return '';
   const d = new Date(dateStr + 'T00:00:00');
   if (isNaN(d.getTime())) return dateStr;
-  const m = months(lang);
-  const dy = days(lang);
+  const m = months();
+  const dy = days();
   return `${m[d.getMonth()]} ${d.getDate()}, ${dy[d.getDay()]}`;
 }
 
-export function formatDateShort(dateStr: string, lang: Lang = 'en'): string {
+export function formatDateShort(dateStr: string, _lang: Lang = 'en'): string {
   if (!dateStr) return '';
   const d = new Date(dateStr + 'T00:00:00');
   if (isNaN(d.getTime())) return dateStr;
-  const m = months(lang);
+  const m = months();
   return `${m[d.getMonth()]} ${d.getDate()}`;
 }
 
-export function formatDateLong(dateStr: string, lang: Lang = 'en'): string {
+export function formatDateLong(dateStr: string, _lang: Lang = 'en'): string {
   if (!dateStr) return '';
   const d = new Date(dateStr + 'T00:00:00');
   if (isNaN(d.getTime())) return dateStr;
-  const m = months(lang);
+  const m = months();
   return `${d.getFullYear()} ${m[d.getMonth()]} ${d.getDate()}`;
 }
 
-export function formatMonth(monthStr: string, lang: Lang = 'en'): string {
+export function formatMonth(monthStr: string, _lang: Lang = 'en'): string {
   if (!monthStr) return '';
   const parts = monthStr.split('-').map(Number);
   if (parts.length !== 2 || parts.some(isNaN)) return monthStr;
   const [y, m] = parts;
-  return `${months(lang)[m - 1]} ${y}`;
+  return `${months()[m - 1]} ${y}`;
 }
 
 export function formatNumber(n: number, decimals = 0): string {
@@ -70,16 +70,30 @@ export function formatNumber(n: number, decimals = 0): string {
   });
 }
 
-export function formatCurrency(n: number, currency = 'LKR'): string {
-  return `${currency} ${formatNumber(n, 2)}`;
+/**
+ * Format a number as a currency string using the user's selected currency.
+ * Falls back gracefully if currencyCode is unknown.
+ *
+ * v3.1: now uses the multi-currency system from currencies.ts.
+ */
+export function formatCurrency(n: number, currencyCode = 'LKR'): string {
+  const c = getCurrency(currencyCode);
+  const formatted = Math.abs(n).toLocaleString('en-US', {
+    minimumFractionDigits: c.decimals,
+    maximumFractionDigits: c.decimals,
+  });
+  const sign = n < 0 ? '-' : '';
+  return c.position === 'before'
+    ? `${sign}${c.symbol} ${formatted}`
+    : `${sign}${formatted} ${c.symbol}`;
 }
 
 export function relativeDayLabel(dateStr: string, today: string, lang: Lang = 'en'): string {
-  if (dateStr === today) return translate(lang, 'common.today');
+  if (dateStr === today) return 'Today';
   const d = new Date(dateStr + 'T00:00:00');
   const t = new Date(today + 'T00:00:00');
   const delta = Math.round((t.getTime() - d.getTime()) / 86400000);
-  if (delta === 1) return translate(lang, 'common.yesterday');
-  if (delta === 2) return translate(lang, 'common.dayBefore');
+  if (delta === 1) return 'Yesterday';
+  if (delta === 2) return 'Day before';
   return formatDate(dateStr, lang);
 }

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Search, ChevronRight, X, Pencil, Trash2, FileBarChart } from 'lucide-react';
+import { ArrowLeft, Search, ChevronRight, X, Pencil, Trash2, FileBarChart, Download } from 'lucide-react';
 import {
   getDayRecordsForRange, getDayRecord, getSalesForDate, getPriceSessionsForDate,
   setDayClosed, recalcDay, deleteSale, getCategories, useI18n,
@@ -68,13 +68,28 @@ export function DailyReportsScreen({ onBack, onEditDay, onOpenPdf, onOpenMonthly
             <p className="text-xs text-stone-600 dark:text-amber-100/70">{t('reports.dailySub')}</p>
           </div>
           {onOpenPdf && (
-            <button
-              onClick={onOpenPdf}
-              className="w-10 h-10 rounded-full glass-primary flex items-center justify-center text-white active:scale-90 transition-transform"
-              aria-label={t('pdf.title')}
-            >
-              <FileBarChart size={18} />
-            </button>
+            <>
+              <button
+                onClick={async () => {
+                  try {
+                    const { exportSalesCSV, downloadTextFile } = await import('@/lib/db');
+                    const csv = await exportSalesCSV(addDays(todayStr(), -90), todayStr());
+                    downloadTextFile(`shopsuite-sales-${todayStr()}.csv`, csv);
+                  } catch (e: any) { /* ignore */ }
+                }}
+                className="w-10 h-10 rounded-full glass flex items-center justify-center text-stone-700 dark:text-amber-50 active:scale-90 transition-transform"
+                aria-label="Export CSV"
+              >
+                <Download size={18} />
+              </button>
+              <button
+                onClick={onOpenPdf}
+                className="w-10 h-10 rounded-full glass-primary flex items-center justify-center text-white active:scale-90 transition-transform"
+                aria-label={t('pdf.title')}
+              >
+                <FileBarChart size={18} />
+              </button>
+            </>
           )}
         </div>
       </header>

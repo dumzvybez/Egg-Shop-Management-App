@@ -13,7 +13,9 @@ export {
   getSalesForDate, getSalesForDateRange, saveSale, updateSale, deleteSale,
   getDayRecord, getAllDayRecords, getDayRecordsForRange, setDayClosed, recalcDay,
   getEditHistory, addEditHistory,
-  exportBackup, importBackup, saveAutoBackup, listAutoBackups, restoreAutoBackup, deleteAutoBackup,
+  exportBackup, importBackup, saveAutoBackup, listAutoBackups, restoreAutoBackup, deleteAutoBackup, getAutoBackupSize,
+  toCSV, downloadTextFile,
+  exportSalesCSV, exportInventoryCSV, exportExpensesCSV, exportCreditsCSV, exportSupplierPurchasesCSV,
   detectMissedDays, getMonthSummary, getDashboardStats,
   getAllCredits, getActiveCredits, getPaidCredits, saveCredit, markCreditPaid, recordCreditPayment, getCreditPayments, getAllCreditPayments,
   getAllSuppliers, getSupplier, saveSupplier, deleteSupplier,
@@ -40,4 +42,4 @@ export {
   useSuppliers, useSupplierData, useInventory,
 } from './use-data';
 export { useI18n } from './i18n-context';
-export { useThemeSync, applyThemeAndLang } from './use-theme';
+export { useThemeSync, applyThemeAndLang, applyThemeAndBackground } from './use-theme';

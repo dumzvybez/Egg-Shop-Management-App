@@ -5,6 +5,7 @@ import { motion } from 'framer-motion';
 import {
   TrendingUp, TrendingDown, Wallet, Coins, Truck, Users, Package,
   AlertTriangle, Settings as SettingsIcon, ChevronRight, Crown, ArrowUpRight, ArrowDownRight, ShoppingBag,
+  Plus, Tag, Receipt, FileText,
 } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Cell,
@@ -21,6 +22,13 @@ type Props = {
   onSeeAllReports: () => void;
   onSeeMonthlyReports: () => void;
   onRecentClick: (date: string) => void;
+  // Quick Actions
+  onNewSale: () => void;
+  onAddStock: () => void;
+  onSupplierPurchase: () => void;
+  onCollectCredit: () => void;
+  onAddExpense: () => void;
+  onGenerateReport: () => void;
   shopName: string;
   ownerName: string;
   shopType: string;
@@ -41,6 +49,7 @@ function greetingKey(): string {
 
 export function Dashboard({
   date, currency, onSeeAllReports, onSeeMonthlyReports,
+  onNewSale, onAddStock, onSupplierPurchase, onCollectCredit, onAddExpense, onGenerateReport,
   shopName, ownerName, shopType,
   onOpenSettings, onOpenInventory, onOpenSuppliers, onOpenCredit, onOpenExpenses,
 }: Props) {
@@ -124,6 +133,23 @@ export function Dashboard({
       </header>
 
       <main className="px-4 py-4 space-y-4 max-w-2xl mx-auto w-full">
+        {/* Quick Actions */}
+        <motion.section
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="glass-strong rounded-3xl p-4"
+        >
+          <p className="text-xs font-semibold text-stone-600 dark:text-amber-100/70 mb-3">Quick Actions</p>
+          <div className="grid grid-cols-3 gap-2">
+            <QuickAction icon={<Plus size={18} />} label="New Sale" onClick={onNewSale} variant="primary" />
+            <QuickAction icon={<Package size={18} />} label="Add Stock" onClick={onAddStock} variant="info" />
+            <QuickAction icon={<Truck size={18} />} label="Supplier" onClick={onSupplierPurchase} variant="info" />
+            <QuickAction icon={<Receipt size={18} />} label="Collect" onClick={onCollectCredit} variant="success" />
+            <QuickAction icon={<Tag size={18} />} label="Expense" onClick={onAddExpense} variant="danger" />
+            <QuickAction icon={<FileText size={18} />} label="Report" onClick={onGenerateReport} variant="primary" />
+          </div>
+        </motion.section>
+
         {/* Top row: Cash Available + Gross Profit + Net Profit */}
         <motion.section
           initial={{ opacity: 0, y: 8 }}
@@ -515,5 +541,30 @@ function BigStat({ icon, label, value, variant, sublabel, fullWidth }: {
       <p className="text-xl font-bold leading-tight">{value}</p>
       {sublabel && <p className="text-[10px] opacity-80 mt-1 truncate">{sublabel}</p>}
     </div>
+  );
+}
+
+function QuickAction({ icon, label, onClick, variant }: {
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+  variant: 'primary' | 'success' | 'info' | 'danger';
+}) {
+  const colorMap = {
+    primary: 'glass-primary',
+    success: 'glass-success',
+    info: 'glass-info',
+    danger: 'glass-danger',
+  };
+  return (
+    <button
+      onClick={onClick}
+      className="flex flex-col items-center gap-1.5 p-2.5 rounded-2xl glass active:scale-95 transition-transform"
+    >
+      <div className={`w-10 h-10 rounded-xl ${colorMap[variant]} flex items-center justify-center text-white`}>
+        {icon}
+      </div>
+      <span className="text-[10px] font-semibold text-stone-700 dark:text-amber-100 text-center leading-tight">{label}</span>
+    </button>
   );
 }

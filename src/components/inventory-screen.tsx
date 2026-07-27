@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   ArrowLeft, Plus, Package, AlertTriangle, TrendingUp, History, X, Check,
-  Pencil, Trash2, Tag, Boxes,
+  Pencil, Trash2, Tag, Boxes, Download,
 } from 'lucide-react';
 import {
   useProducts, useInventory, useI18n,
@@ -80,6 +80,19 @@ export function InventoryScreen({ onBack }: Props) {
             <h1 className="text-lg font-bold text-stone-800 dark:text-amber-50">{t('inventory.title')}</h1>
             <p className="text-xs text-stone-600 dark:text-amber-100/70">{t('inventory.sub')}</p>
           </div>
+          <button
+            onClick={async () => {
+              try {
+                const { exportInventoryCSV, downloadTextFile } = await import('@/lib/db');
+                const csv = await exportInventoryCSV();
+                downloadTextFile(`shopsuite-inventory-${todayStr()}.csv`, csv);
+              } catch (e: any) { /* ignore */ }
+            }}
+            className="w-10 h-10 rounded-full glass flex items-center justify-center text-stone-700 dark:text-amber-50 active:scale-90 transition-transform"
+            aria-label="Export CSV"
+          >
+            <Download size={18} />
+          </button>
           <button
             onClick={handleOpenAdd}
             className="w-10 h-10 rounded-full glass-primary flex items-center justify-center text-white active:scale-90 transition-transform"

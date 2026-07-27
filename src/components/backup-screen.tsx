@@ -13,7 +13,7 @@ import { formatDate } from '@/lib/sinhala';
 
 type Props = {
   onBack: () => void;
-  settings: { shopName: string; ownerName: string; currency: string; lastBackupAt: number | null };
+  settings: { shopName: string; ownerName: string; currency: string; lastBackupAt: number | null; autoBackupFrequency?: 'daily' | 'weekly' | 'manual'; lastAutoBackupAt?: number | null };
   onChanged: () => void;
 };
 

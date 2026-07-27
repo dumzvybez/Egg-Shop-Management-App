@@ -1,8 +1,8 @@
 {
-  "name": "shop-manager",
-  "version": "3.0.0",
+  "name": "shopsuite",
+  "version": "3.1.0",
   "private": true,
-  "description": "Shop Manager — a generic, offline-first Progressive Web App for small-business management (sales, inventory, suppliers, credit, expenses, reports).",
+  "description": "ShopSuite — a polished, offline-first Progressive Web App for professional small-business management.",
   "scripts": {
     "dev": "next dev -p 3000",
     "build": "next build --webpack",

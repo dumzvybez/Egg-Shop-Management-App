@@ -1,7 +1,7 @@
 {
-  "name": "Shop Manager",
-  "short_name": "Shop Manager",
-  "description": "Modern offline Progressive Web App for small-business management — sales, inventory, suppliers, credit, expenses and reports.",
+  "name": "ShopSuite — Small Business Management",
+  "short_name": "ShopSuite",
+  "description": "Polished, offline-first Progressive Web App for professional small-business management: sales, inventory, suppliers, credit, expenses and reports.",
   "lang": "en",
   "dir": "ltr",
   "start_url": "/",
@@ -51,9 +51,15 @@
       "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
     },
     {
-      "name": "Sales",
+      "name": "New Sale",
       "short_name": "Sales",
       "url": "/#/sales",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Inventory",
+      "short_name": "Inventory",
+      "url": "/#/inventory",
       "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
     }
   ]

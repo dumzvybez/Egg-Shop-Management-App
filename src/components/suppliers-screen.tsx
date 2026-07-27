@@ -6,6 +6,7 @@ import { ArrowLeft, Plus, Phone, ChevronRight, User, Trash2, Pencil, X } from 'l
 import {
   useSuppliers, useI18n,
   saveSupplier, deleteSupplier, genId,
+  formatCurrency,
   type Supplier,
 } from '@/lib/data-hooks-adapter';
 import { useAppToast } from './toast-provider';
@@ -13,9 +14,10 @@ import { useAppToast } from './toast-provider';
 type Props = {
   onBack: () => void;
   onOpenSupplier: (supplierId: string) => void;
+  currency?: string;
 };
 
-export function SuppliersScreen({ onBack, onOpenSupplier }: Props) {
+export function SuppliersScreen({ onBack, onOpenSupplier, currency = 'LKR' }: Props) {
   const { t } = useI18n();
   const { suppliers, loading, refresh } = useSuppliers();
   const { toast } = useAppToast();
@@ -55,6 +57,9 @@ export function SuppliersScreen({ onBack, onOpenSupplier }: Props) {
       </header>
 
       <main className="px-4 py-4 space-y-4 max-w-2xl mx-auto w-full">
+        {/* Summary cards */}
+        {suppliers.length > 0 && <SupplierSummaryCards suppliers={suppliers} currency={currency} />}
+
         {loading ? (
           <div className="glass rounded-2xl p-8 text-center text-stone-500 dark:text-amber-100/60 text-sm">
             {t('common.loading')}
@@ -263,5 +268,58 @@ function SupplierForm({ open, onClose, onSaved, editing }: {
         </motion.div>
       )}
     </AnimatePresence>
+  );
+}
+
+function SupplierSummaryCards({ suppliers, currency }: { suppliers: Supplier[]; currency: string }) {
+  const [summary, setSummary] = useState<{ total: number; outstanding: number; paidThisMonth: number; purchasesThisMonth: number } | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      const { getSupplierSummary, getAllSupplierPurchasesForDateRange, getPaymentsForSupplier } = await import('@/lib/db');
+      const today = new Date();
+      const monthStart = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-01`;
+      const monthEnd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-31`;
+      let outstanding = 0;
+      let paidThisMonth = 0;
+      for (const s of suppliers) {
+        const sum = await getSupplierSummary(s.id);
+        outstanding += sum.remaining;
+        const payments = await getPaymentsForSupplier(s.id);
+        paidThisMonth += payments
+          .filter((p) => p.paymentDate >= monthStart && p.paymentDate <= monthEnd)
+          .reduce((a, p) => a + p.amount, 0);
+      }
+      const purchases = await getAllSupplierPurchasesForDateRange(monthStart, monthEnd);
+      setSummary({
+        total: suppliers.length,
+        outstanding,
+        paidThisMonth,
+        purchasesThisMonth: purchases.length,
+      });
+    })();
+  }, [suppliers]);
+
+  if (!summary) return null;
+
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      <div className="glass-strong rounded-2xl p-3">
+        <p className="text-[10px] text-stone-500 dark:text-amber-100/60">Total Suppliers</p>
+        <p className="text-lg font-bold text-stone-800 dark:text-amber-50">{summary.total}</p>
+      </div>
+      <div className={`rounded-2xl p-3 ${summary.outstanding > 0 ? 'glass-danger' : 'glass-strong'}`}>
+        <p className="text-[10px] opacity-90">Total Outstanding</p>
+        <p className="text-lg font-bold text-white">{formatCurrency(summary.outstanding, currency)}</p>
+      </div>
+      <div className="glass-success rounded-2xl p-3">
+        <p className="text-[10px] text-white/90">Paid This Month</p>
+        <p className="text-lg font-bold text-white">{formatCurrency(summary.paidThisMonth, currency)}</p>
+      </div>
+      <div className="glass-info rounded-2xl p-3">
+        <p className="text-[10px] text-white/90">Purchases This Month</p>
+        <p className="text-lg font-bold text-white">{summary.purchasesThisMonth}</p>
+      </div>
+    </div>
   );
 }
